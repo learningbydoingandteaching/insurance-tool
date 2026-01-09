@@ -1,0 +1,6 @@
+streamlit
+camelot-py[cv]
+opencv-python-headless
+python-docx
+pymupdf
+pandas
