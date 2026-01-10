@@ -18,6 +18,8 @@ def extract_values_from_filename(filename):
 def extract_table_value(pdf_path, page_num, row_num, col_num):
     try:
         tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
+        # 優先尋找列數較多的表格，通常是主數據表
+        tables.sort(key=lambda x: x.df.shape[1], reverse=True)
         for table in tables:
             df = table.df
             try:
@@ -32,6 +34,7 @@ def extract_table_value(pdf_path, page_num, row_num, col_num):
 def extract_row_values(pdf_path, page_num, keyword):
     try:
         tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
+        tables.sort(key=lambda x: x.df.shape[1], reverse=True)
         for table in tables:
             df = table.df
             for i, row in df.iterrows():
@@ -97,7 +100,7 @@ def process_word_template(template_path, values, remove_text_start=None, remove_
     
     # 處理刪除邏輯
     if remove_text_start and remove_text_end:
-        delete_specified_runs(doc, remove_text_start, remove_text_end)
+        delete_specified_range(doc, remove_text_start, remove_text_end)
         
     # 保存到內存
     bio = io.BytesIO()
@@ -105,29 +108,25 @@ def process_word_template(template_path, values, remove_text_start=None, remove_
     bio.seek(0)
     return bio
 
-def delete_specified_runs(doc, start_text, end_text):
-    inside_delete_range = False
-    runs_to_delete = []
-    paragraphs_to_check = set()
-
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            if start_text in run.text:
-                inside_delete_range = True
-            if inside_delete_range:
-                runs_to_delete.append(run)
-                paragraphs_to_check.add(paragraph)
-            if end_text in run.text:
-                inside_delete_range = False
-                for run_to_delete in runs_to_delete[:-1]:
-                    run_to_delete.clear()
-                runs_to_delete = []
-                paragraphs_to_check.add(paragraph)
-                break
-
-    for paragraph in list(paragraphs_to_check):
-        if not paragraph.text.strip():
-            p = paragraph._element
+def delete_specified_range(doc, start_text, end_text):
+    """
+    精確刪除從 start_text 到 end_text 之間的內容。
+    """
+    paragraphs = list(doc.paragraphs)
+    start_idx = -1
+    end_idx = -1
+    
+    for i, p in enumerate(paragraphs):
+        if start_text in p.text:
+            start_idx = i
+        if end_text in p.text and start_idx != -1:
+            end_idx = i
+            break
+            
+    if start_idx != -1 and end_idx != -1:
+        # 刪除這之間的段落
+        for i in range(start_idx, end_idx + 1):
+            p = paragraphs[i]._element
             p.getparent().remove(p)
 
 # --- 儲蓄險特有邏輯 ---
@@ -155,17 +154,29 @@ def get_i_j_k_l_m_from_page6(pdf_path):
     try:
         tables = camelot.read_pdf(pdf_path, pages='6', flavor='stream')
         if len(tables) > 0:
+            # 尋找列數最多的表格（通常是 8 列）
+            tables.sort(key=lambda x: x.df.shape[1], reverse=True)
             df = tables[0].df
             num_rows = df.shape[0]
             
             def get_val(row_from_bottom):
                 try:
                     idx = num_rows - row_from_bottom
+                    # 獲取最後一列的值
                     val = df.iat[idx, -1]
+                    # 如果最後一列為空，嘗試前一列（防止解析偏移）
+                    if not val.strip():
+                        val = df.iat[idx, -2]
                     return val.replace(',', '').replace(' ', '')
                 except:
                     return "N/A"
             
+            # 根據分析結果，ANB 101 是最後一行 (row_from_bottom=1)
+            # ANB 96 是倒數第 2 行
+            # ANB 86 是倒數第 4 行
+            # ANB 76 是倒數第 6 行
+            # ANB 66 是倒數第 8 行
+            # ANB 56 是倒數第 10 行
             i = get_val(10) # ANB 56
             j = get_val(8)  # ANB 66
             k = get_val(6)  # ANB 76
@@ -186,7 +197,7 @@ choice = st.sidebar.selectbox("選擇功能類型", menu)
 
 template_file = st.sidebar.file_uploader("上傳 Word 模板 (.docx)", type=["docx"])
 
-if choice in ["儲蓄險", "儲蓄险添加"]:
+if choice in ["儲蓄險", "儲蓄險添加"]:
     pdf_file = st.file_uploader("選擇連續提取 PDF 文件", type=["pdf"])
     new_pdf_file = st.file_uploader("選擇分階段提取 PDF 文件 (可選)", type=["pdf"])
     
@@ -209,6 +220,15 @@ if choice in ["儲蓄險", "儲蓄险添加"]:
                 
                 # 提取 i, j, k, l, m
                 i, j, k, l, m = get_i_j_k_l_m_from_page6("temp_pdf.pdf")
+                
+                # 顯示提取結果供用戶驗證
+                st.write("### 提取數值驗證：")
+                col1, col2, col3, col4, col5 = st.columns(5)
+                col1.metric("i (ANB 56)", i)
+                col2.metric("j (ANB 66)", j)
+                col3.metric("k (ANB 76)", k)
+                col4.metric("l (ANB 86)", l)
+                col5.metric("m (ANB 96)", m)
                 
                 pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
                 
@@ -234,8 +254,9 @@ if choice in ["儲蓄險", "儲蓄险添加"]:
                     s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", page_num_q_r, 11, 0))
                     values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
                 else:
-                    remove_start = "在人生的重要階段提取："
-                    remove_end = "不提取分紅，在某年，把累積的本金"
+                    # 如果沒有上傳第二份 PDF，刪除指定區塊
+                    remove_start = "提取方式2："
+                    remove_end = "可免税传承给后代。"
                 
                 # 處理 Word
                 output_bio = process_word_template(template_file, values, remove_start, remove_end)
@@ -267,6 +288,7 @@ elif choice in ["二人重疾險", "三人重疾險", "四人重疾險"]:
                 d = d_vals[3] if len(d_vals) > 3 else "N/A"
                 
                 tables_p4 = camelot.read_pdf(temp_name, pages='4', flavor='stream')
+                tables_p4.sort(key=lambda x: x.df.shape[1], reverse=True)
                 num_rows_p4 = tables_p4[0].df.shape[0] if tables_p4 else 0
                 
                 e = extract_table_value(temp_name, 4, num_rows_p4 - 8, 8)
