@@ -23,7 +23,7 @@ def extract_values_from_filename(filename):
     return None
 
 def extract_table_value(pdf_path, page_num, row_num, col_num):
-    """从指定页码、行、列提取表格数值"""
+    """从指定页码、行、列提取表格数值 (通用)"""
     try:
         tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
         for table in tables:
@@ -36,7 +36,6 @@ def extract_table_value(pdf_path, page_num, row_num, col_num):
                 continue
         return "N/A"
     except Exception as e:
-        print(f"Error extracting table value: {e}")
         return "N/A"
 
 def extract_row_values(pdf_path, page_num, keyword):
@@ -110,7 +109,7 @@ def replace_values_in_word_template(template_path, output_path, values):
     doc.save(output_path)
 
 # ==========================================
-# 2. 储蓄险专用函数 (含逻辑修正)
+# 2. 储蓄险专用函数
 # ==========================================
 
 def extract_values_from_filename_code1(filename):
@@ -146,7 +145,6 @@ def delete_specified_runs(doc, start_text, end_text):
                 paragraphs_to_check.add(paragraph)
                 break
     
-    # 清理空段落
     for paragraph in paragraphs_to_check:
         if not paragraph.text.strip():
             try:
@@ -194,37 +192,69 @@ def replace_values_in_word_template_append(template_path, output_path, values, r
     doc.save(output_path)
 
 # ==========================================
-# 3. 业务逻辑处理 (Streamlit 适配版)
+# 3. 核心修复逻辑：智能行搜索与求和
 # ==========================================
 
-def get_summed_value_from_page_6(df_page_6, row_from_bottom):
+def get_summed_value_by_age(df, target_age):
     """
-    核心修正逻辑：
-    直接读取倒数第5列、第3列、第1列，求和得到总价值。
-    解决 -2 列读取为 N/A 的问题。
+    智能查找逻辑：
+    1. 遍历表格每一行，寻找包含 target_age (如 "56") 的行。
+    2. 找到行后，提取该行所有有效的数值。
+    3. 取最后3个数值相加 (对应：保证值 + 红利A + 红利B)。
     """
-    try:
-        num_rows = df_page_6.shape[0]
-        target_row_idx = num_rows - row_from_bottom
+    target_age_str = str(target_age)
+    
+    for index, row in df.iterrows():
+        # 1. 将整行转为字符串列表
+        row_str_list = [str(x).strip() for x in row.values]
         
-        def get_float(col_idx):
-            try:
-                val = df_page_6.iat[target_row_idx, col_idx]
-                clean = val.replace(',', '').replace(' ', '')
-                return float(clean) if clean else 0.0
-            except:
-                return 0.0
+        # 2. 检查这一行是否包含目标年龄 (通常在第1或第2列)
+        # 我们检查前3列即可，防止误匹配到后面的金额
+        found_age = False
+        for cell in row_str_list[:3]:
+            # 精确匹配 "56" 或者 "56.0"
+            if cell == target_age_str or cell == f"{target_age_str}.0":
+                found_age = True
+                break
+        
+        if found_age:
+            # 3. 提取该行所有的数值
+            numbers = []
+            for cell in row_str_list:
+                # 去除逗号
+                clean_cell = cell.replace(',', '').replace(' ', '')
+                # 尝试转为浮点数
+                try:
+                    val = float(clean_cell)
+                    numbers.append(val)
+                except ValueError:
+                    continue
+            
+            # 4. 逻辑推断：我们需要最后3个大数相加
+            if len(numbers) >= 3:
+                # 取最后三个数
+                v1 = numbers[-1]
+                v2 = numbers[-2]
+                v3 = numbers[-3]
+                
+                # 简单的启发式规则：金额通常大于 200，防止把年龄加进去
+                valid_values = [n for n in numbers if n > 200] 
+                
+                if len(valid_values) >= 3:
+                    total = valid_values[-1] + valid_values[-2] + valid_values[-3]
+                    return "{:,.0f}".format(total)
+                else:
+                    # 如果过滤后不足3个，直接加最后3个原始提取的数
+                    total = v1 + v2 + v3
+                    return "{:,.0f}".format(total)
+            
+            return "N/A (数据不足)"
 
-        # 提取分量
-        v1 = get_float(-5) # 保证金额
-        v2 = get_float(-3) # 红利A
-        v3 = get_float(-1) # 红利B (终期红利)
-        
-        total = v1 + v2 + v3
-        return "{:,.0f}".format(total)
-    except Exception as e:
-        print(f"计算出错: {e}")
-        return "N/A"
+    return "N/A"
+
+# ==========================================
+# 4. 业务处理流程
+# ==========================================
 
 def process_code1(pdf_file_path, new_pdf_file_path, template_path, output_path):
     # 1. 文件名提取
@@ -240,18 +270,18 @@ def process_code1(pdf_file_path, new_pdf_file_path, template_path, output_path):
     g = extract_table_value(pdf_file_path, page_num_g_h, 11, 5)
     h = extract_table_value(pdf_file_path, page_num_g_h, 12, 5)
 
-    # 3. 第6页复杂数据提取 (i, j, k, l, m) - 使用求和逻辑
+    # 3. 第6页复杂数据提取 (i, j, k, l, m) - 使用智能搜索逻辑
     tables_page_6 = camelot.read_pdf(pdf_file_path, pages='6', flavor='stream')
     i = j = k = l = m = "N/A"
     
     if len(tables_page_6) > 0:
         df_page_6 = tables_page_6[0].df
-        # 使用新的求和函数
-        i = get_summed_value_from_page_6(df_page_6, 10) # ANB 56
-        j = get_summed_value_from_page_6(df_page_6, 8)  # ANB 66
-        k = get_summed_value_from_page_6(df_page_6, 6)  # ANB 76
-        l = get_summed_value_from_page_6(df_page_6, 4)  # ANB 86
-        m = get_summed_value_from_page_6(df_page_6, 2)  # ANB 96
+        # 智能搜索年龄行
+        i = get_summed_value_by_age(df_page_6, 56)
+        j = get_summed_value_by_age(df_page_6, 66)
+        k = get_summed_value_by_age(df_page_6, 76)
+        l = get_summed_value_by_age(df_page_6, 86)
+        m = get_summed_value_by_age(df_page_6, 96)
 
     pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
     values = dict(zip("abcdef", filename_values))
@@ -303,16 +333,16 @@ def process_code4(pdf_file_path, new_pdf_file_path, template_path, output_path):
     s_string = extract_table_value(pdf_file_path, page_num_s, 11, 0)
     s = extract_numeric_value_from_string(s_string)
 
-    # 第6页提取 - 使用求和逻辑
+    # 第6页提取 - 使用智能搜索逻辑
     tables_page_6 = camelot.read_pdf(pdf_file_path, pages='6', flavor='stream')
     i = j = k = l = m = "N/A"
     if len(tables_page_6) > 0:
         df_page_6 = tables_page_6[0].df
-        i = get_summed_value_from_page_6(df_page_6, 10)
-        j = get_summed_value_from_page_6(df_page_6, 8)
-        k = get_summed_value_from_page_6(df_page_6, 6)
-        l = get_summed_value_from_page_6(df_page_6, 4)
-        m = get_summed_value_from_page_6(df_page_6, 2)
+        i = get_summed_value_by_age(df_page_6, 56)
+        j = get_summed_value_by_age(df_page_6, 66)
+        k = get_summed_value_by_age(df_page_6, 76)
+        l = get_summed_value_by_age(df_page_6, 86)
+        m = get_summed_value_by_age(df_page_6, 96)
 
     pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m, "s": s}
     values = dict(zip("abcdef", filename_values))
@@ -383,7 +413,7 @@ def process_critical_illness(pdf_files, template_path, output_path, num_people):
     return True, f"{num_people}人重疾险处理完成！"
 
 # ==========================================
-# 4. Streamlit 界面主入口
+# 5. Streamlit 界面主入口
 # ==========================================
 
 def save_uploaded_file(uploaded_file, temp_dir):
