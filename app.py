@@ -197,12 +197,10 @@ def process_code1(pdf_file, new_pdf_file, template_path, output_path):
         def get_val_from_last_col(row_from_bottom):
             try:
                 target_row_idx = num_rows_page_6 - row_from_bottom
-                val = df_page_6.iat[target_row_idx, 4]
-               return str(val).replace(',', '').replace(' ', '')
-    except Exception as e:
-        # 调试建议: 如果还是 N/A，可以把 print(e) 打开看看具体是什么错
-        # print(f"Error: {e}") 
-        return "N/A"
+                val = df_page_6.iat[target_row_idx, -1]
+                return val.replace(',', '').replace(' ', '')
+            except Exception as e:
+                return "N/A"
 
         i = get_val_from_last_col(10)
         j = get_val_from_last_col(8)
@@ -270,7 +268,7 @@ def process_code4(pdf_file, new_pdf_file, template_path, output_path):
         def get_val_from_last_col(row_from_bottom):
             try:
                 target_row_idx = num_rows_page_6 - row_from_bottom
-                val = df_page_6.iat[target_row_idx, 4]
+                val = df_page_6.iat[target_row_idx, -1]
                 return val.replace(',', '').replace(' ', '')
             except Exception: return "N/A"
         i = get_val_from_last_col(10)
@@ -463,7 +461,3 @@ if st.button("🚀 开始生成", type="primary"):
             except Exception as e:
                 st.error(f"❌ 发生错误: {str(e)}")
                 st.info("提示: 请确保 PDF 文件名包含所需的数字编号，且格式正确。")
-
-
-
-
