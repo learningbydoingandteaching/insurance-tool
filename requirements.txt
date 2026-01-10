@@ -2,7 +2,7 @@ streamlit
 camelot-py[cv]
 opencv-python-headless
 PyMuPDF
+pdfplumber
 python-docx
 pandas
 ghostscript
-
