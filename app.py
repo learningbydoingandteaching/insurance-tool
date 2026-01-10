@@ -190,25 +190,40 @@ def process_code1(pdf_file, new_pdf_file, template_path, output_path):
 
     # 提取第6页
     tables_page_6 = camelot.read_pdf(pdf_file, pages='6', flavor='stream')
-    if len(tables_page_6) > 0:
-        df_page_6 = tables_page_6[0].df
-        num_rows_page_6 = df_page_6.shape[0]
+    # 初始化变量
+    i = j = k = l = m = "N/A"
 
-        def get_val_from_last_col(row_from_bottom):
+    if len(tables_data) > 0:
+        df = tables_data[0].df
+        
+        # 定义新函数：通过查找“岁数”关键词来抓取最后一列的数值
+        def get_val_by_age(age_key):
             try:
-                target_row_idx = num_rows_page_6 - row_from_bottom
-                val = df_page_6.iat[target_row_idx, -1]
-                return val.replace(',', '').replace(' ', '')
-            except Exception as e:
+                # 遍历表格的每一行
+                for index, row in df.iterrows():
+                    # 把这一行转为字符串，检查是否包含岁数关键词 (例如 "56")
+                    # 只要行里有 "56"，我们就认为找到了那一行
+                    row_str = row.astype(str).values
+                    row_text = " ".join(row_str)
+                    
+                    if age_key in row_text:
+                        # 取这一行的最后一列 (通常是退保价值总额)
+                        val = row_str[-1]
+                        # 清理数据：去掉逗号和空格
+                        clean_val = val.replace(',', '').replace(' ', '')
+                        # 简单的校验：必须包含数字
+                        if any(char.isdigit() for char in clean_val):
+                            return clean_val
+                return "N/A"
+            except Exception:
                 return "N/A"
 
-        i = get_val_from_last_col(10)
-        j = get_val_from_last_col(8)
-        k = get_val_from_last_col(6)
-        l = get_val_from_last_col(4)
-        m = get_val_from_last_col(2)
-    else:
-        i = j = k = l = m = "N/A"
+        # 2. 使用关键词精准定位 (对应你要求的数值)
+        i = get_val_by_age("56")   # 对应 240,547
+        j = get_val_by_age("66")   # 对应 454,690
+        k = get_val_by_age("76")   # 对应 853,672
+        l = get_val_by_age("86")   # 对应 1,602,632
+        m = get_val_by_age("96")   # 对应 3,008,582
 
     pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
     values = dict(zip("abcdef", filename_values))
@@ -461,3 +476,4 @@ if st.button("🚀 开始生成", type="primary"):
             except Exception as e:
                 st.error(f"❌ 发生错误: {str(e)}")
                 st.info("提示: 请确保 PDF 文件名包含所需的数字编号，且格式正确。")
+
