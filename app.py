@@ -3,6 +3,7 @@ import os
 import re
 import camelot
 import fitz  # PyMuPDF
+import pdfplumber
 from docx import Document
 import pandas as pd
 import io
@@ -18,7 +19,6 @@ def extract_values_from_filename(filename):
 def extract_table_value(pdf_path, page_num, row_num, col_num):
     try:
         tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
-        # 優先尋找列數較多的表格，通常是主數據表
         tables.sort(key=lambda x: x.df.shape[1], reverse=True)
         for table in tables:
             df = table.df
@@ -28,7 +28,7 @@ def extract_table_value(pdf_path, page_num, row_num, col_num):
             except IndexError:
                 continue
     except Exception as e:
-        st.error(f"提取表格數值出錯: {e}")
+        pass
     return "N/A"
 
 def extract_row_values(pdf_path, page_num, keyword):
@@ -42,7 +42,7 @@ def extract_row_values(pdf_path, page_num, keyword):
                     values = [val.replace(',', '') for val in re.findall(r"[\d,.]+", row.to_string())]
                     return values
     except Exception as e:
-        st.error(f"提取行數值出錯: {e}")
+        pass
     return []
 
 def add_thousand_separator(value):
@@ -60,7 +60,6 @@ def evaluate_expression(expression, values):
     for key, value in values.items():
         expression = expression.replace(f"{{{key}}}", str(value))
     try:
-        # 安全評估簡單數學表達式
         result = eval(expression, {"__builtins__": None}, {})
         return add_thousand_separator(result)
     except Exception as e:
@@ -102,16 +101,12 @@ def process_word_template(template_path, values, remove_text_start=None, remove_
     if remove_text_start and remove_text_end:
         delete_specified_range(doc, remove_text_start, remove_text_end)
         
-    # 保存到內存
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio
 
 def delete_specified_range(doc, start_text, end_text):
-    """
-    精確刪除從 start_text 到 end_text 之間的內容。
-    """
     paragraphs = list(doc.paragraphs)
     start_idx = -1
     end_idx = -1
@@ -124,12 +119,32 @@ def delete_specified_range(doc, start_text, end_text):
             break
             
     if start_idx != -1 and end_idx != -1:
-        # 刪除這之間的段落
         for i in range(start_idx, end_idx + 1):
             p = paragraphs[i]._element
             p.getparent().remove(p)
 
 # --- 儲蓄險特有邏輯 ---
+
+def get_value_by_text_search(pdf_path, page_idx, keyword):
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            text = pdf.pages[page_idx].extract_text()
+            if not text: return "N/A"
+            lines = text.split('\n')
+            for line in lines:
+                if keyword in line:
+                    matches = re.findall(r'[\d,]+', line)
+                    nums = []
+                    for m in matches:
+                        clean = m.replace(',', '').strip()
+                        if clean.isdigit():
+                            nums.append(clean)
+                    if nums:
+                        # 總額是該行最後一個數字
+                        return nums[-1]
+    except Exception:
+        pass
+    return "N/A"
 
 def extract_values_from_filename_code1(filename):
     values = re.findall(r'\d+', filename)
@@ -140,9 +155,7 @@ def extract_values_from_filename_code1(filename):
 def extract_nop_from_filename(filename):
     values = re.findall(r'\d+', filename)
     if len(values) >= 11:
-        n = values[5]
-        o = values[7]
-        p = values[10]
+        n, o, p = values[5], values[7], values[10]
         return n, o, p
     return None, None, None
 
@@ -150,49 +163,12 @@ def extract_numeric_value_from_string(string):
     numbers = re.findall(r'\d+', string)
     return ''.join(numbers) if numbers else "N/A"
 
-def get_i_j_k_l_m_from_page6(pdf_path):
-    try:
-        tables = camelot.read_pdf(pdf_path, pages='6', flavor='stream')
-        if len(tables) > 0:
-            # 尋找列數最多的表格（通常是 8 列）
-            tables.sort(key=lambda x: x.df.shape[1], reverse=True)
-            df = tables[0].df
-            num_rows = df.shape[0]
-            
-            def get_val(row_from_bottom):
-                try:
-                    idx = num_rows - row_from_bottom
-                    # 獲取最後一列的值
-                    val = df.iat[idx, -1]
-                    # 如果最後一列為空，嘗試前一列（防止解析偏移）
-                    if not val.strip():
-                        val = df.iat[idx, -2]
-                    return val.replace(',', '').replace(' ', '')
-                except:
-                    return "N/A"
-            
-            # 根據分析結果，ANB 101 是最後一行 (row_from_bottom=1)
-            # ANB 96 是倒數第 2 行
-            # ANB 86 是倒數第 4 行
-            # ANB 76 是倒數第 6 行
-            # ANB 66 是倒數第 8 行
-            # ANB 56 是倒數第 10 行
-            i = get_val(10) # ANB 56
-            j = get_val(8)  # ANB 66
-            k = get_val(6)  # ANB 76
-            l = get_val(4)  # ANB 86
-            m = get_val(2)  # ANB 96
-            return i, j, k, l, m
-    except Exception as e:
-        st.error(f"提取 i,j,k,l,m 出錯: {e}")
-    return "N/A", "N/A", "N/A", "N/A", "N/A"
-
 # --- Streamlit 界面 ---
 
 st.set_page_config(page_title="PDF 計劃書自動化工具", layout="wide")
 st.title("📄 PDF 計劃書自動化工具")
 
-menu = ["儲蓄險", "儲蓄險添加", "二人重疾險", "三人重疾險", "四人重疾險"]
+menu = ["儲蓄險", "儲蓄險添加", "一人重疾險", "二人重疾險", "三人重疾險", "四人重疾險"]
 choice = st.sidebar.selectbox("選擇功能類型", menu)
 
 template_file = st.sidebar.file_uploader("上傳 Word 模板 (.docx)", type=["docx"])
@@ -203,7 +179,6 @@ if choice in ["儲蓄險", "儲蓄險添加"]:
     
     if st.button("開始處理") and template_file and pdf_file:
         with st.spinner("正在處理中..."):
-            # 保存臨時文件
             with open("temp_pdf.pdf", "wb") as f:
                 f.write(pdf_file.getbuffer())
             
@@ -211,28 +186,28 @@ if choice in ["儲蓄險", "儲蓄險添加"]:
             if not filename_values:
                 st.error("PDF 文件名中未找到足夠的數值。")
             else:
-                # 提取 g, h
                 doc_fitz = fitz.open("temp_pdf.pdf")
                 total_pages = len(doc_fitz)
                 page_num_g_h = total_pages - 6
                 g = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 5)
                 h = extract_table_value("temp_pdf.pdf", page_num_g_h, 12, 5)
                 
-                # 提取 i, j, k, l, m
-                i, j, k, l, m = get_i_j_k_l_m_from_page6("temp_pdf.pdf")
+                # 使用精確文本搜索提取 i, j, k, l, m (第 6 頁，索引為 5)
+                i = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 56")
+                j = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 66")
+                k = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 76")
+                l = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 86")
+                m = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 96")
                 
-                # 顯示提取結果供用戶驗證
                 st.write("### 提取數值驗證：")
-                col1, col2, col3, col4, col5 = st.columns(5)
-                col1.metric("i (ANB 56)", i)
-                col2.metric("j (ANB 66)", j)
-                col3.metric("k (ANB 76)", k)
-                col4.metric("l (ANB 86)", l)
-                col5.metric("m (ANB 96)", m)
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("i (ANB 56)", i)
+                c2.metric("j (ANB 66)", j)
+                c3.metric("k (ANB 76)", k)
+                c4.metric("l (ANB 86)", l)
+                c5.metric("m (ANB 96)", m)
                 
                 pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
-                
-                # 提取 s (如果是 code4)
                 if choice == "儲蓄險添加":
                     s_string = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 0)
                     pdf_values["s"] = extract_numeric_value_from_string(s_string)
@@ -240,31 +215,27 @@ if choice in ["儲蓄險", "儲蓄險添加"]:
                 values = dict(zip("abcdef", filename_values))
                 values.update(pdf_values)
                 
-                remove_start = None
-                remove_end = None
-                
+                remove_start, remove_end = None, None
                 if new_pdf_file:
                     with open("temp_new_pdf.pdf", "wb") as f:
                         f.write(new_pdf_file.getbuffer())
                     n, o, p = extract_nop_from_filename(new_pdf_file.name)
                     new_doc_fitz = fitz.open("temp_new_pdf.pdf")
-                    page_num_q_r = len(new_doc_fitz) - 6
-                    q = extract_table_value("temp_new_pdf.pdf", page_num_q_r, 11, 5)
-                    r = extract_table_value("temp_new_pdf.pdf", page_num_q_r, 12, 5)
-                    s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", page_num_q_r, 11, 0))
+                    p_q_r = len(new_doc_fitz) - 6
+                    q = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 5)
+                    r = extract_table_value("temp_new_pdf.pdf", p_q_r, 12, 5)
+                    s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
                     values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
                 else:
-                    # 如果沒有上傳第二份 PDF，刪除指定區塊
                     remove_start = "提取方式2："
                     remove_end = "可免税传承给后代。"
                 
-                # 處理 Word
                 output_bio = process_word_template(template_file, values, remove_start, remove_end)
                 st.success("處理完成！")
                 st.download_button("下載生成的 Word 文件", output_bio, file_name="output.docx")
 
-elif choice in ["二人重疾險", "三人重疾險", "四人重疾險"]:
-    num_files = {"二人重疾險": 2, "三人重疾險": 3, "四人重疾險": 4}[choice]
+elif choice in ["一人重疾險", "二人重疾險", "三人重疾險", "四人重疾險"]:
+    num_files = {"一人重疾險": 1, "二人重疾險": 2, "三人重疾險": 3, "四人重疾險": 4}[choice]
     pdf_files = []
     for idx in range(num_files):
         pdf_files.append(st.file_uploader(f"選擇第 {idx+1} 個 PDF 文件", type=["pdf"], key=f"pdf_{idx}"))
@@ -273,7 +244,6 @@ elif choice in ["二人重疾險", "三人重疾險", "四人重疾險"]:
         with st.spinner("正在處理中..."):
             all_values = {}
             suffixes = ["", "1", "2", "3"]
-            
             for idx, pdf in enumerate(pdf_files):
                 suffix = suffixes[idx]
                 temp_name = f"temp_pdf_{idx}.pdf"
