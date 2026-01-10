@@ -4,13 +4,10 @@ import re
 import camelot
 import fitz  # PyMuPDF
 from docx import Document
-import copy
-import tempfile
-import shutil
+import pandas as pd
+import io
 
-# ==========================================
-# 核心逻辑函数 (源自您的原始代码，去除了Tkinter)
-# ==========================================
+# --- 公共函數部分 ---
 
 def extract_values_from_filename(filename):
     values = re.findall(r'\d+', filename)
@@ -19,25 +16,30 @@ def extract_values_from_filename(filename):
     return None
 
 def extract_table_value(pdf_path, page_num, row_num, col_num):
-    # Camelot 需要物理路径
-    tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
-    for table in tables:
-        df = table.df
-        try:
-            value = df.iat[int(row_num), int(col_num)].replace(',', '')
-            return value
-        except IndexError:
-            continue
+    try:
+        tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
+        for table in tables:
+            df = table.df
+            try:
+                value = df.iat[int(row_num), int(col_num)].replace(',', '').replace(' ', '')
+                return value
+            except IndexError:
+                continue
+    except Exception as e:
+        st.error(f"提取表格數值出錯: {e}")
     return "N/A"
 
 def extract_row_values(pdf_path, page_num, keyword):
-    tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
-    for table in tables:
-        df = table.df
-        for i, row in df.iterrows():
-            if keyword in row.to_string():
-                values = [val.replace(',', '') for val in re.findall(r"[\d,.]+", row.to_string())]
-                return values
+    try:
+        tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
+        for table in tables:
+            df = table.df
+            for i, row in df.iterrows():
+                if keyword in row.to_string():
+                    values = [val.replace(',', '') for val in re.findall(r"[\d,.]+", row.to_string())]
+                    return values
+    except Exception as e:
+        st.error(f"提取行數值出錯: {e}")
     return []
 
 def add_thousand_separator(value):
@@ -55,17 +57,17 @@ def evaluate_expression(expression, values):
     for key, value in values.items():
         expression = expression.replace(f"{{{key}}}", str(value))
     try:
-        result = eval(expression)
+        # 安全評估簡單數學表達式
+        result = eval(expression, {"__builtins__": None}, {})
         return add_thousand_separator(result)
     except Exception as e:
-        print(f"计算表达式时出错: {expression}. 错误信息: {e}")
         return "N/A"
 
 def replace_and_evaluate_in_run(run, values):
     full_text = run.text
     for key, value in values.items():
         placeholder = f"{{{key}}}"
-        full_text = full_text.replace(placeholder, value if value is not None else "N/A")
+        full_text = full_text.replace(placeholder, str(value) if value is not None else "N/A")
 
     expressions = re.findall(r'\{\{[^\}]+\}\}', full_text)
     for expr in expressions:
@@ -79,33 +81,29 @@ def replace_and_evaluate_in_paragraph(paragraph, values):
     for run in paragraph.runs:
         replace_and_evaluate_in_run(run, values)
 
-def replace_values_in_word_template(template_path, output_path, values):
+def process_word_template(template_path, values, remove_text_start=None, remove_text_end=None):
     doc = Document(template_path)
+    
+    # 處理段落
     for paragraph in doc.paragraphs:
         replace_and_evaluate_in_paragraph(paragraph, values)
+    
+    # 處理表格
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
                     replace_and_evaluate_in_paragraph(paragraph, values)
-    doc.save(output_path)
-
-# --- 储蓄险专用函数 ---
-
-def extract_values_from_filename_code1(filename):
-    values = re.findall(r'\d+', filename)
-    if len(values) >= 6:
-        return values[:6]
-    return None
-
-def extract_nop_from_filename(filename):
-    values = re.findall(r'\d+', filename)
-    if len(values) >= 11:
-        n = values[5]
-        o = values[7]
-        p = values[10]
-        return n, o, p
-    return None, None, None
+    
+    # 處理刪除邏輯
+    if remove_text_start and remove_text_end:
+        delete_specified_runs(doc, remove_text_start, remove_text_end)
+        
+    # 保存到內存
+    bio = io.BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
 
 def delete_specified_runs(doc, start_text, end_text):
     inside_delete_range = False
@@ -127,353 +125,162 @@ def delete_specified_runs(doc, start_text, end_text):
                 paragraphs_to_check.add(paragraph)
                 break
 
-    for paragraph in paragraphs_to_check:
+    for paragraph in list(paragraphs_to_check):
         if not paragraph.text.strip():
             p = paragraph._element
             p.getparent().remove(p)
-            p._element = None
+
+# --- 儲蓄險特有邏輯 ---
+
+def extract_values_from_filename_code1(filename):
+    values = re.findall(r'\d+', filename)
+    if len(values) >= 6:
+        return values[:6]
+    return None
+
+def extract_nop_from_filename(filename):
+    values = re.findall(r'\d+', filename)
+    if len(values) >= 11:
+        n = values[5]
+        o = values[7]
+        p = values[10]
+        return n, o, p
+    return None, None, None
 
 def extract_numeric_value_from_string(string):
     numbers = re.findall(r'\d+', string)
     return ''.join(numbers) if numbers else "N/A"
 
-def replace_values_in_word_template_with_delete(template_path, output_path, values, remove_text_start, remove_text_end):
-    doc = Document(template_path)
-    for paragraph in doc.paragraphs:
-        replace_and_evaluate_in_paragraph(paragraph, values)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    replace_and_evaluate_in_paragraph(paragraph, values)
-    if remove_text_start and remove_text_end:
-        delete_specified_runs(doc, remove_text_start, remove_text_end)
-    doc.save(output_path)
-
-def replace_values_in_word_template_append(template_path, output_path, values, remove_text_start=None, remove_text_end=None):
-    # 注意：在Code4中，如果output_path存在，则读取它；但在Web版中，output_path是新生成的
-    # 这里的逻辑稍微调整：Web版每次都是生成新文件，所以我们假设 template_path 就是基础文件
-    
-    # 为了兼容原逻辑，我们直接操作 template_path 对应的文档对象
-    template_doc = Document(template_path)
-
-    for paragraph in template_doc.paragraphs:
-        replace_and_evaluate_in_paragraph(paragraph, values)
-    for table in template_doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    replace_and_evaluate_in_paragraph(paragraph, values)
-    if remove_text_start and remove_text_end:
-        delete_specified_runs(template_doc, remove_text_start, remove_text_end)
-
-    # 保存
-    template_doc.save(output_path)
-
-
-# ==========================================
-# 业务逻辑处理函数 (修改为抛出异常而非弹窗)
-# ==========================================
-
-def process_code1(pdf_file, new_pdf_file, template_path, output_path):
-    pdf_filename = os.path.basename(pdf_file)
-    filename_values = extract_values_from_filename_code1(pdf_filename)
-    if not filename_values:
-        raise Exception("PDF 文件名中未找到足够的数值 (需要至少6个数字)。")
-
-    doc = fitz.open(pdf_file)
-    total_pages = len(doc)
-    page_num_g_h = total_pages - 6
-
-    g = extract_table_value(pdf_file, page_num_g_h, 11, 5)
-    h = extract_table_value(pdf_file, page_num_g_h, 12, 5)
-
-    # 提取第6页
-    tables_page_6 = camelot.read_pdf(pdf_file, pages='6', flavor='stream')
-    # 初始化变量
-    i = j = k = l = m = "N/A"
-
-    if len(tables_data) > 0:
-        df = tables_data[0].df
-        
-        # 定义新函数：通过查找“岁数”关键词来抓取最后一列的数值
-        def get_val_by_age(age_key):
-            try:
-                # 遍历表格的每一行
-                for index, row in df.iterrows():
-                    # 把这一行转为字符串，检查是否包含岁数关键词 (例如 "56")
-                    # 只要行里有 "56"，我们就认为找到了那一行
-                    row_str = row.astype(str).values
-                    row_text = " ".join(row_str)
-                    
-                    if age_key in row_text:
-                        # 取这一行的最后一列 (通常是退保价值总额)
-                        val = row_str[-1]
-                        # 清理数据：去掉逗号和空格
-                        clean_val = val.replace(',', '').replace(' ', '')
-                        # 简单的校验：必须包含数字
-                        if any(char.isdigit() for char in clean_val):
-                            return clean_val
-                return "N/A"
-            except Exception:
-                return "N/A"
-
-        # 2. 使用关键词精准定位 (对应你要求的数值)
-        i = get_val_by_age("56")   # 对应 240,547
-        j = get_val_by_age("66")   # 对应 454,690
-        k = get_val_by_age("76")   # 对应 853,672
-        l = get_val_by_age("86")   # 对应 1,602,632
-        m = get_val_by_age("96")   # 对应 3,008,582
-
-    pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
-    values = dict(zip("abcdef", filename_values))
-    values.update(pdf_values)
-
-    if not new_pdf_file:
-        remove_text_start = "在人生的重要阶段提取："
-        remove_text_end = "不提取分红，在某年，把累积的本金"
-        replace_values_in_word_template_with_delete(template_path, output_path, values, remove_text_start, remove_text_end)
-        return "处理完成 (单PDF模式)"
-
-    # 处理第二个PDF
-    new_pdf_filename = os.path.basename(new_pdf_file)
-    n, o, p = extract_nop_from_filename(new_pdf_filename)
-    if not n or not o or not p:
-        raise Exception("第二个 PDF 文件名中未找到足够的数值用于 n, o, p。")
-
-    new_doc = fitz.open(new_pdf_file)
-    total_new_pages = len(new_doc)
-    page_num_q_r = total_new_pages - 6
-
-    q = extract_table_value(new_pdf_file, page_num_q_r, 11, 5)
-    r = extract_table_value(new_pdf_file, page_num_q_r, 12, 5)
-    s_string = extract_table_value(new_pdf_file, page_num_q_r, 11, 0)
-    s = extract_numeric_value_from_string(s_string)
-
-    new_pdf_values = {"n": n, "o": o, "p": p, "q": q, "r": r, "s": s}
-    values.update(new_pdf_values)
-
-    replace_values_in_word_template(template_path, output_path, values)
-    return "处理完成 (双PDF模式)"
-
-
-def process_code4(pdf_file, new_pdf_file, template_path, output_path):
-    # 逻辑与Code1类似，但使用 append 模式
-    pdf_filename = os.path.basename(pdf_file)
-    filename_values = extract_values_from_filename_code1(pdf_filename)
-    if not filename_values:
-        raise Exception("PDF 文件名中未找到足够的数值。")
-
-    doc = fitz.open(pdf_file)
-    total_pages = len(doc)
-    page_num_g_h = total_pages - 6
-
-    g = extract_table_value(pdf_file, page_num_g_h, 11, 5)
-    h = extract_table_value(pdf_file, page_num_g_h, 12, 5)
-    
-    page_num_s = total_pages - 6
-    s_string = extract_table_value(pdf_file, page_num_s, 11, 0)
-    s = extract_numeric_value_from_string(s_string)
-
-    tables_page_6 = camelot.read_pdf(pdf_file, pages='6', flavor='stream')
-    i = j = k = l = m = "N/A"
-    if len(tables_page_6) > 0:
-        df_page_6 = tables_page_6[0].df
-        num_rows_page_6 = df_page_6.shape[0]
-        def get_val_from_last_col(row_from_bottom):
-            try:
-                target_row_idx = num_rows_page_6 - row_from_bottom
-                val = df_page_6.iat[target_row_idx, -1]
-                return val.replace(',', '').replace(' ', '')
-            except Exception: return "N/A"
-        i = get_val_from_last_col(10)
-        j = get_val_from_last_col(8)
-        k = get_val_from_last_col(6)
-        l = get_val_from_last_col(4)
-        m = get_val_from_last_col(2)
-
-    pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m, "s": s}
-    values = dict(zip("abcdef", filename_values))
-    values.update(pdf_values)
-
-    if not new_pdf_file:
-        remove_text_start = "在人生的重要阶段提取："
-        remove_text_end = "不提取分红，在某年，把累积的本金"
-        replace_values_in_word_template_append(template_path, output_path, values, remove_text_start, remove_text_end)
-        return "储蓄险添加处理完成 (单PDF)"
-
-    new_pdf_filename = os.path.basename(new_pdf_file)
-    n, o, p = extract_nop_from_filename(new_pdf_filename)
-    if not n or not o or not p:
-        raise Exception("第二个 PDF 文件名中未找到足够的数值用于 n, o, p。")
-
-    new_doc = fitz.open(new_pdf_file)
-    total_new_pages = len(new_doc)
-    page_num_q_r = total_new_pages - 6
-    q = extract_table_value(new_pdf_file, page_num_q_r, 11, 5)
-    r = extract_table_value(new_pdf_file, page_num_q_r, 12, 5)
-
-    new_pdf_values = {"n": n, "o": o, "p": p, "q": q, "r": r}
-    values.update(new_pdf_values)
-
-    replace_values_in_word_template_append(template_path, output_path, values)
-    return "储蓄险添加处理完成 (双PDF)"
-
-
-def process_ci_common(pdf_files, template_path, output_path):
-    # 通用的重疾险处理逻辑 (1-4人)
-    # pdf_files 是一个列表
-    
-    all_values = {}
-    
-    for idx, pdf_file in enumerate(pdf_files):
-        suffix = "" if idx == 0 else str(idx) # 第一个人无后缀，第二个是1，第三个是2...
-        if idx == 0: suffix_keys = ["a", "b", "c"]
-        else: suffix_keys = [f"a{idx}", f"b{idx}", f"c{idx}"]
-        
-        pdf_filename = os.path.basename(pdf_file)
-        filename_values = extract_values_from_filename(pdf_filename)
-        if not filename_values:
-            raise Exception(f"第 {idx+1} 个 PDF 文件名中未找到足够的数值。")
+def get_i_j_k_l_m_from_page6(pdf_path):
+    try:
+        tables = camelot.read_pdf(pdf_path, pages='6', flavor='stream')
+        if len(tables) > 0:
+            df = tables[0].df
+            num_rows = df.shape[0]
             
-        # 提取数据
-        d_values = extract_row_values(pdf_file, 3, "CIP2") or extract_row_values(pdf_file, 3, "CIM3")
-        d = d_values[3] if len(d_values) > 3 else "N/A"
+            def get_val(row_from_bottom):
+                try:
+                    idx = num_rows - row_from_bottom
+                    val = df.iat[idx, -1]
+                    return val.replace(',', '').replace(' ', '')
+                except:
+                    return "N/A"
+            
+            i = get_val(10) # ANB 56
+            j = get_val(8)  # ANB 66
+            k = get_val(6)  # ANB 76
+            l = get_val(4)  # ANB 86
+            m = get_val(2)  # ANB 96
+            return i, j, k, l, m
+    except Exception as e:
+        st.error(f"提取 i,j,k,l,m 出錯: {e}")
+    return "N/A", "N/A", "N/A", "N/A", "N/A"
 
-        num_rows_page_4 = 0
-        tables_page_4 = camelot.read_pdf(pdf_file, pages='4', flavor='stream')
-        for table in tables_page_4:
-            df_page_4 = table.df
-            num_rows_page_4 = df_page_4.shape[0]
+# --- Streamlit 界面 ---
 
-        e = extract_table_value(pdf_file, 4, num_rows_page_4 - 8, 8)
-        f = extract_table_value(pdf_file, 4, num_rows_page_4 - 6, 8)
-        g = extract_table_value(pdf_file, 4, num_rows_page_4 - 4, 8)
-        h = extract_table_value(pdf_file, 4, num_rows_page_4 - 2, 8)
+st.set_page_config(page_title="PDF 計劃書自動化工具", layout="wide")
+st.title("📄 PDF 計劃書自動化工具")
 
-        key_d = "d" + ("" if idx == 0 else str(idx))
-        key_e = "e" + ("" if idx == 0 else str(idx))
-        key_f = "f" + ("" if idx == 0 else str(idx))
-        key_g = "g" + ("" if idx == 0 else str(idx))
-        key_h = "h" + ("" if idx == 0 else str(idx))
+menu = ["儲蓄險", "儲蓄險添加", "二人重疾險", "三人重疾險", "四人重疾險"]
+choice = st.sidebar.selectbox("選擇功能類型", menu)
 
-        pdf_values = {
-            key_d: d, key_e: e, key_f: f, key_g: g, key_h: h
-        }
-        
-        all_values.update(dict(zip(suffix_keys, filename_values)))
-        all_values.update(pdf_values)
+template_file = st.sidebar.file_uploader("上傳 Word 模板 (.docx)", type=["docx"])
 
-    replace_values_in_word_template(template_path, output_path, all_values)
-    return f"重疾险 ({len(pdf_files)}人) 处理完成"
-
-
-# ==========================================
-# Streamlit 界面部分
-# ==========================================
-
-st.set_page_config(page_title="保险计划书生成器", layout="wide")
-
-st.title("📋 保险计划书自动生成器")
-st.markdown("---")
-
-# 侧边栏选择模式
-mode = st.sidebar.radio(
-    "请选择功能模式",
-    [
-        "储蓄险 (Code1)",
-        "储蓄险-添加模式 (Code4)",
-        "一人重疾险 (Code2)",
-        "二人重疾险 (Code5)",
-        "三人重疾险 (Code6)",
-        "四人重疾险 (Code7)"
-    ]
-)
-
-st.header(f"当前模式: {mode}")
-
-# 文件上传区
-uploaded_pdfs = []
-uploaded_template = st.file_uploader("上传 Word 模板 (.docx)", type=["docx"])
-
-# 根据模式显示不同的 PDF 上传框
-if "储蓄险" in mode:
-    pdf1 = st.file_uploader("上传主 PDF 文件", type=["pdf"], key="s1")
-    pdf2 = st.file_uploader("上传第二个 PDF 文件 (可选)", type=["pdf"], key="s2")
-    if pdf1: uploaded_pdfs.append(pdf1)
-    if pdf2: uploaded_pdfs.append(pdf2)
-else:
-    # 重疾险
-    count = 1
-    if "二人" in mode: count = 2
-    if "三人" in mode: count = 3
-    if "四人" in mode: count = 4
+if choice in ["儲蓄險", "儲蓄险添加"]:
+    pdf_file = st.file_uploader("選擇連續提取 PDF 文件", type=["pdf"])
+    new_pdf_file = st.file_uploader("選擇分階段提取 PDF 文件 (可選)", type=["pdf"])
     
-    for i in range(count):
-        pdf = st.file_uploader(f"上传第 {i+1} 个人的 PDF", type=["pdf"], key=f"ci_{i}")
-        if pdf: uploaded_pdfs.append(pdf)
-
-# 开始生成按钮
-if st.button("🚀 开始生成", type="primary"):
-    if not uploaded_template:
-        st.error("请上传 Word 模板文件！")
-    elif len(uploaded_pdfs) == 0:
-        st.error("请至少上传一个 PDF 文件！")
-    else:
-        # 创建临时目录
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                # 1. 保存 Word 模板
-                temp_tpl_path = os.path.join(temp_dir, uploaded_template.name)
-                with open(temp_tpl_path, "wb") as f:
-                    f.write(uploaded_template.getvalue())
+    if st.button("開始處理") and template_file and pdf_file:
+        with st.spinner("正在處理中..."):
+            # 保存臨時文件
+            with open("temp_pdf.pdf", "wb") as f:
+                f.write(pdf_file.getbuffer())
+            
+            filename_values = extract_values_from_filename_code1(pdf_file.name)
+            if not filename_values:
+                st.error("PDF 文件名中未找到足夠的數值。")
+            else:
+                # 提取 g, h
+                doc_fitz = fitz.open("temp_pdf.pdf")
+                total_pages = len(doc_fitz)
+                page_num_g_h = total_pages - 6
+                g = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 5)
+                h = extract_table_value("temp_pdf.pdf", page_num_g_h, 12, 5)
                 
-                # 2. 保存 PDF 文件 (保持原始文件名，这对您的正则逻辑至关重要)
-                pdf_paths = []
-                for up_pdf in uploaded_pdfs:
-                    p_path = os.path.join(temp_dir, up_pdf.name)
-                    with open(p_path, "wb") as f:
-                        f.write(up_pdf.getvalue())
-                    pdf_paths.append(p_path)
-
-                output_path = os.path.join(temp_dir, "generated_plan.docx")
-                result_msg = ""
-
-                # 3. 调用逻辑
-                with st.spinner("正在分析数据并生成文档..."):
-                    if "Code1" in mode:
-                        p2 = pdf_paths[1] if len(pdf_paths) > 1 else None
-                        result_msg = process_code1(pdf_paths[0], p2, temp_tpl_path, output_path)
-                    
-                    elif "Code4" in mode:
-                        p2 = pdf_paths[1] if len(pdf_paths) > 1 else None
-                        result_msg = process_code4(pdf_paths[0], p2, temp_tpl_path, output_path)
-                    
-                    else:
-                        # 重疾险系列 (Code2, 5, 6, 7)
-                        # 检查文件数量是否匹配
-                        expected_count = 1
-                        if "二人" in mode: expected_count = 2
-                        if "三人" in mode: expected_count = 3
-                        if "四人" in mode: expected_count = 4
-                        
-                        if len(pdf_paths) != expected_count:
-                            raise Exception(f"当前模式需要 {expected_count} 个PDF文件，但您上传了 {len(pdf_paths)} 个。")
-                        
-                        result_msg = process_ci_common(pdf_paths, temp_tpl_path, output_path)
-
-                # 4. 成功后显示下载按钮
-                st.success(f"✅ {result_msg}")
+                # 提取 i, j, k, l, m
+                i, j, k, l, m = get_i_j_k_l_m_from_page6("temp_pdf.pdf")
                 
-                with open(output_path, "rb") as f:
-                    st.download_button(
-                        label="📥 下载生成的计划书",
-                        data=f,
-                        file_name="保险计划书_生成版.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
+                pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
+                
+                # 提取 s (如果是 code4)
+                if choice == "儲蓄險添加":
+                    s_string = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 0)
+                    pdf_values["s"] = extract_numeric_value_from_string(s_string)
+                
+                values = dict(zip("abcdef", filename_values))
+                values.update(pdf_values)
+                
+                remove_start = None
+                remove_end = None
+                
+                if new_pdf_file:
+                    with open("temp_new_pdf.pdf", "wb") as f:
+                        f.write(new_pdf_file.getbuffer())
+                    n, o, p = extract_nop_from_filename(new_pdf_file.name)
+                    new_doc_fitz = fitz.open("temp_new_pdf.pdf")
+                    page_num_q_r = len(new_doc_fitz) - 6
+                    q = extract_table_value("temp_new_pdf.pdf", page_num_q_r, 11, 5)
+                    r = extract_table_value("temp_new_pdf.pdf", page_num_q_r, 12, 5)
+                    s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", page_num_q_r, 11, 0))
+                    values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
+                else:
+                    remove_start = "在人生的重要階段提取："
+                    remove_end = "不提取分紅，在某年，把累積的本金"
+                
+                # 處理 Word
+                output_bio = process_word_template(template_file, values, remove_start, remove_end)
+                st.success("處理完成！")
+                st.download_button("下載生成的 Word 文件", output_bio, file_name="output.docx")
 
-            except Exception as e:
-                st.error(f"❌ 发生错误: {str(e)}")
-                st.info("提示: 请确保 PDF 文件名包含所需的数字编号，且格式正确。")
+elif choice in ["二人重疾險", "三人重疾險", "四人重疾險"]:
+    num_files = {"二人重疾險": 2, "三人重疾險": 3, "四人重疾險": 4}[choice]
+    pdf_files = []
+    for idx in range(num_files):
+        pdf_files.append(st.file_uploader(f"選擇第 {idx+1} 個 PDF 文件", type=["pdf"], key=f"pdf_{idx}"))
+    
+    if st.button("開始處理") and template_file and all(pdf_files):
+        with st.spinner("正在處理中..."):
+            all_values = {}
+            suffixes = ["", "1", "2", "3"]
+            
+            for idx, pdf in enumerate(pdf_files):
+                suffix = suffixes[idx]
+                temp_name = f"temp_pdf_{idx}.pdf"
+                with open(temp_name, "wb") as f:
+                    f.write(pdf.getbuffer())
+                
+                fn_vals = extract_values_from_filename(pdf.name)
+                if fn_vals:
+                    all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
+                
+                d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
+                d = d_vals[3] if len(d_vals) > 3 else "N/A"
+                
+                tables_p4 = camelot.read_pdf(temp_name, pages='4', flavor='stream')
+                num_rows_p4 = tables_p4[0].df.shape[0] if tables_p4 else 0
+                
+                e = extract_table_value(temp_name, 4, num_rows_p4 - 8, 8)
+                f = extract_table_value(temp_name, 4, num_rows_p4 - 6, 8)
+                g = extract_table_value(temp_name, 4, num_rows_p4 - 4, 8)
+                h = extract_table_value(temp_name, 4, num_rows_p4 - 2, 8)
+                
+                all_values.update({
+                    f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h
+                })
+            
+            output_bio = process_word_template(template_file, all_values)
+            st.success("處理完成！")
+            st.download_button("下載生成的 Word 文件", output_bio, file_name="output.docx")
 
+st.sidebar.markdown("---")
+st.sidebar.info("請確保上傳的 PDF 格式與模板要求一致。")
