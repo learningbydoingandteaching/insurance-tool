@@ -18,8 +18,9 @@ def extract_values_from_filename(filename):
 
 def extract_table_value(pdf_path, page_num, row_num, col_num):
     try:
+        # 頁碼在 camelot 中是 1-indexed 字符串
         tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
-        tables.sort(key=lambda x: x.df.shape[1], reverse=True)
+        # 保持原始邏輯：不進行排序，直接按順序找第一個能提取到值的表格
         for table in tables:
             df = table.df
             try:
@@ -27,21 +28,20 @@ def extract_table_value(pdf_path, page_num, row_num, col_num):
                 return value
             except IndexError:
                 continue
-    except Exception as e:
+    except Exception:
         pass
     return "N/A"
 
 def extract_row_values(pdf_path, page_num, keyword):
     try:
         tables = camelot.read_pdf(pdf_path, pages=str(page_num), flavor='stream')
-        tables.sort(key=lambda x: x.df.shape[1], reverse=True)
         for table in tables:
             df = table.df
             for i, row in df.iterrows():
                 if keyword in row.to_string():
                     values = [val.replace(',', '') for val in re.findall(r"[\d,.]+", row.to_string())]
                     return values
-    except Exception as e:
+    except Exception:
         pass
     return []
 
@@ -62,7 +62,7 @@ def evaluate_expression(expression, values):
     try:
         result = eval(expression, {"__builtins__": None}, {})
         return add_thousand_separator(result)
-    except Exception as e:
+    except Exception:
         return "N/A"
 
 def replace_and_evaluate_in_run(run, values):
@@ -107,6 +107,9 @@ def process_word_template(template_path, values, remove_text_start=None, remove_
     return bio
 
 def delete_specified_range(doc, start_text, end_text):
+    """
+    精確刪除從 start_text 到 end_text 之間的內容，並消除空行。
+    """
     paragraphs = list(doc.paragraphs)
     start_idx = -1
     end_idx = -1
@@ -119,16 +122,36 @@ def delete_specified_range(doc, start_text, end_text):
             break
             
     if start_idx != -1 and end_idx != -1:
-        for i in range(start_idx, end_idx + 1):
+        # 從後往前刪除，避免索引混亂
+        for i in range(end_idx, start_idx - 1, -1):
             p = paragraphs[i]._element
             p.getparent().remove(p)
 
 # --- 儲蓄險特有邏輯 ---
 
-def get_value_by_text_search(pdf_path, page_idx, keyword):
+def find_page_by_keyword(pdf_path, keyword):
+    """
+    動態定位包含關鍵字的頁碼 (1-indexed)
+    """
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            text = pdf.pages[page_idx].extract_text()
+            for i, page in enumerate(pdf.pages):
+                text = page.extract_text()
+                if text and keyword in text:
+                    return i + 1
+    except Exception:
+        pass
+    return None
+
+def get_value_by_text_search(pdf_path, page_num, keyword):
+    """
+    使用 pdfplumber 在指定頁碼提取關鍵字所在行的最後一個數字
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            # pdfplumber 索引從 0 開始
+            page = pdf.pages[page_num - 1]
+            text = page.extract_text()
             if not text: return "N/A"
             lines = text.split('\n')
             for line in lines:
@@ -140,7 +163,6 @@ def get_value_by_text_search(pdf_path, page_idx, keyword):
                         if clean.isdigit():
                             nums.append(clean)
                     if nums:
-                        # 總額是該行最後一個數字
                         return nums[-1]
     except Exception:
         pass
@@ -186,20 +208,27 @@ if choice in ["儲蓄險", "儲蓄險添加"]:
             if not filename_values:
                 st.error("PDF 文件名中未找到足夠的數值。")
             else:
+                # 1. 定位頁面
+                target_page = find_page_by_keyword("temp_pdf.pdf", "退保價值之説明摘要")
+                if not target_page:
+                    st.warning("未找到『退保價值之説明摘要』頁面，將嘗試使用默認頁碼。")
+                    target_page = 6 # 備選
+                
+                # 2. 提取 g, h (保持原始邏輯：使用 camelot 提取總頁數-6頁的固定位置)
                 doc_fitz = fitz.open("temp_pdf.pdf")
                 total_pages = len(doc_fitz)
                 page_num_g_h = total_pages - 6
                 g = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 5)
                 h = extract_table_value("temp_pdf.pdf", page_num_g_h, 12, 5)
                 
-                # 使用精確文本搜索提取 i, j, k, l, m (第 6 頁，索引為 5)
-                i = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 56")
-                j = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 66")
-                k = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 76")
-                l = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 86")
-                m = get_value_by_text_search("temp_pdf.pdf", 5, "@ANB 96")
+                # 3. 提取 i, j, k, l, m (使用動態定位的頁面)
+                i = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 56")
+                j = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 66")
+                k = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 76")
+                l = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 86")
+                m = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 96")
                 
-                st.write("### 提取數值驗證：")
+                st.write(f"### 提取數值驗證 (定位頁碼: {target_page})：")
                 c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("i (ANB 56)", i)
                 c2.metric("j (ANB 66)", j)
@@ -208,6 +237,8 @@ if choice in ["儲蓄險", "儲蓄險添加"]:
                 c5.metric("m (ANB 96)", m)
                 
                 pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
+                
+                # 儲蓄險添加 (Code4) 邏輯對齊
                 if choice == "儲蓄險添加":
                     s_string = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 0)
                     pdf_values["s"] = extract_numeric_value_from_string(s_string)
@@ -227,8 +258,9 @@ if choice in ["儲蓄險", "儲蓄險添加"]:
                     s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
                     values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
                 else:
-                    remove_start = "提取方式2："
-                    remove_end = "可免税传承给后代。"
+                    # 更新刪除邏輯：從「在人生的重要阶段提取：“ 到 ”提取方式 3：“
+                    remove_start = "在人生的重要阶段提取："
+                    remove_end = "提取方式 3："
                 
                 output_bio = process_word_template(template_file, values, remove_start, remove_end)
                 st.success("處理完成！")
@@ -258,7 +290,7 @@ elif choice in ["一人重疾險", "二人重疾險", "三人重疾險", "四人
                 d = d_vals[3] if len(d_vals) > 3 else "N/A"
                 
                 tables_p4 = camelot.read_pdf(temp_name, pages='4', flavor='stream')
-                tables_p4.sort(key=lambda x: x.df.shape[1], reverse=True)
+                # 保持原始邏輯：不排序，直接取第一個
                 num_rows_p4 = tables_p4[0].df.shape[0] if tables_p4 else 0
                 
                 e = extract_table_value(temp_name, 4, num_rows_p4 - 8, 8)
