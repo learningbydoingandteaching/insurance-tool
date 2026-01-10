@@ -7,8 +7,36 @@ import pdfplumber
 from docx import Document
 import pandas as pd
 import io
+import streamlit.components.v1 as components
 
-# --- 公共函數部分 ---
+# --- 移動端 App 化支持 (PWA) ---
+# 注入 HTML 標籤，讓手機瀏覽器識別為 App
+pwa_html = """
+<link rel="manifest" href="https://raw.githubusercontent.com/manus-agent/pwa-manifest/main/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PDF工具">
+<link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/4726/4726010.png">
+<style>
+    /* 優化移動端按鈕和間距 */
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        background-color: #007AFF;
+        color: white;
+        font-weight: bold;
+    }
+    .stMetric {
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+</style>
+"""
+
+# --- 公共函數部分 (核心邏輯保持不變) ---
 
 def extract_values_from_filename(filename):
     values = re.findall(r'\d+', filename)
@@ -68,13 +96,11 @@ def replace_and_evaluate_in_run(run, values):
     for key, value in values.items():
         placeholder = f"{{{key}}}"
         full_text = full_text.replace(placeholder, str(value) if value is not None else "N/A")
-
     expressions = re.findall(r'\{\{[^\}]+\}\}', full_text)
     for expr in expressions:
         expr_clean = expr.strip("{}")
         result = evaluate_expression(expr_clean, values)
         full_text = full_text.replace(expr, result)
-
     run.text = full_text
 
 def replace_and_evaluate_in_paragraph(paragraph, values):
@@ -112,7 +138,7 @@ def delete_specified_range(doc, start_text, end_text):
             p = paragraphs[i]._element
             p.getparent().remove(p)
 
-# --- 儲蓄險特有邏輯 ---
+# --- 儲蓄險特有邏輯 (核心邏輯保持不變) ---
 
 def find_page_by_keyword(pdf_path, keyword):
     try:
@@ -159,115 +185,116 @@ def extract_numeric_value_from_string(string):
 
 # --- Streamlit 界面 ---
 
-st.set_page_config(page_title="PDF 計劃書自動化工具", layout="wide")
-st.title("📄 PDF 計劃書自動化工具")
+st.set_page_config(page_title="PDF 計劃書工具", layout="centered")
+components.html(pwa_html, height=0)
 
+st.title("📄 PDF 計劃書工具")
+
+# 移動端友好的菜單
 menu = ["儲蓄險", "儲蓄險添加", "一人重疾險", "二人重疾險", "三人重疾險", "四人重疾險"]
-choice = st.sidebar.selectbox("選擇功能類型", menu)
-template_file = st.sidebar.file_uploader("上傳 Word 模板 (.docx)", type=["docx"])
+choice = st.selectbox("選擇功能類型", menu)
 
-if choice in ["儲蓄險", "儲蓄險添加"]:
-    pdf_file = st.file_uploader("選擇連續提取 PDF 文件", type=["pdf"])
-    new_pdf_file = st.file_uploader("選擇分階段提取 PDF 文件 (可選)", type=["pdf"])
+with st.expander("📁 上傳模板與文件", expanded=True):
+    template_file = st.file_uploader("上傳 Word 模板 (.docx)", type=["docx"])
     
-    if st.button("開始處理") and template_file and pdf_file:
+    if choice in ["儲蓄險", "儲蓄險添加"]:
+        pdf_file = st.file_uploader("選擇連續提取 PDF", type=["pdf"])
+        new_pdf_file = st.file_uploader("選擇分階段提取 PDF (可選)", type=["pdf"])
+    else:
+        num_files = {"一人重疾險": 1, "二人重疾險": 2, "三人重疾險": 3, "四人重疾險": 4}[choice]
+        pdf_files = []
+        for idx in range(num_files):
+            pdf_files.append(st.file_uploader(f"選擇第 {idx+1} 個 PDF", type=["pdf"], key=f"pdf_{idx}"))
+
+if st.button("🚀 開始處理"):
+    if not template_file:
+        st.error("請先上傳 Word 模板！")
+    else:
         with st.spinner("正在處理中..."):
-            with open("temp_pdf.pdf", "wb") as f:
-                f.write(pdf_file.getbuffer())
-            
-            filename_values = extract_values_from_filename_code1(pdf_file.name)
-            if not filename_values:
-                st.error("PDF 文件名中未找到足夠的數值。")
-            else:
-                target_page = find_page_by_keyword("temp_pdf.pdf", "退保價值之説明摘要") or 6
-                doc_fitz = fitz.open("temp_pdf.pdf")
-                page_num_g_h = len(doc_fitz) - 6
-                
-                g = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 5)
-                h = extract_table_value("temp_pdf.pdf", page_num_g_h, 12, 5)
-                
-                # s 的提取邏輯：與 g 同行 (11)，但取第一列 (0)
-                s_raw = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 0)
-                s = extract_numeric_value_from_string(s_raw)
-                
-                i = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 56")
-                j = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 66")
-                k = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 76")
-                l = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 86")
-                m = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 96")
-                
-                st.write(f"### 提取數值驗證：")
-                c1, c2, c3, c4, c5, c6 = st.columns(6)
-                c1.metric("i (ANB 56)", i)
-                c2.metric("j (ANB 66)", j)
-                c3.metric("k (ANB 76)", k)
-                c4.metric("l (ANB 86)", l)
-                c5.metric("m (ANB 96)", m)
-                c6.metric("s (年齡)", s)
-                
-                pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m, "s": s}
-                values = dict(zip("abcdef", filename_values))
-                values.update(pdf_values)
-                
-                remove_start, remove_end = None, None
-                if new_pdf_file:
-                    with open("temp_new_pdf.pdf", "wb") as f:
-                        f.write(new_pdf_file.getbuffer())
-                    n, o, p = extract_nop_from_filename(new_pdf_file.name)
-                    new_doc_fitz = fitz.open("temp_new_pdf.pdf")
-                    p_q_r = len(new_doc_fitz) - 6
-                    q = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 5)
-                    r = extract_table_value("temp_new_pdf.pdf", p_q_r, 12, 5)
-                    s_new_raw = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0)
-                    s_new = extract_numeric_value_from_string(s_new_raw)
-                    values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
+            if choice in ["儲蓄險", "儲蓄險添加"]:
+                if not pdf_file:
+                    st.error("請上傳 PDF 文件！")
                 else:
-                    remove_start = "在人生的重要阶段提取："
-                    remove_end = "提取方式 3："
-                
-                output_bio = process_word_template(template_file, values, remove_start, remove_end)
-                st.success("處理完成！")
-                st.download_button("下載生成的 Word 文件", output_bio, file_name="output.docx")
+                    with open("temp_pdf.pdf", "wb") as f:
+                        f.write(pdf_file.getbuffer())
+                    
+                    filename_values = extract_values_from_filename_code1(pdf_file.name)
+                    if not filename_values:
+                        st.error("PDF 文件名格式不正確。")
+                    else:
+                        target_page = find_page_by_keyword("temp_pdf.pdf", "退保價值之説明摘要") or 6
+                        doc_fitz = fitz.open("temp_pdf.pdf")
+                        page_num_g_h = len(doc_fitz) - 6
+                        
+                        g = extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 5)
+                        h = extract_table_value("temp_pdf.pdf", page_num_g_h, 12, 5)
+                        s = extract_numeric_value_from_string(extract_table_value("temp_pdf.pdf", page_num_g_h, 11, 0))
+                        
+                        i = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 56")
+                        j = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 66")
+                        k = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 76")
+                        l = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 86")
+                        m = get_value_by_text_search("temp_pdf.pdf", target_page, "@ANB 96")
+                        
+                        st.info("📊 提取數值驗證")
+                        v_col1, v_col2 = st.columns(2)
+                        v_col1.metric("i (56歲)", i)
+                        v_col1.metric("j (66歲)", j)
+                        v_col1.metric("k (76歲)", k)
+                        v_col2.metric("l (86歲)", l)
+                        v_col2.metric("m (96歲)", m)
+                        v_col2.metric("s (年齡)", s)
+                        
+                        pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m, "s": s}
+                        values = dict(zip("abcdef", filename_values))
+                        values.update(pdf_values)
+                        
+                        remove_start, remove_end = None, None
+                        if new_pdf_file:
+                            with open("temp_new_pdf.pdf", "wb") as f:
+                                f.write(new_pdf_file.getbuffer())
+                            n, o, p = extract_nop_from_filename(new_pdf_file.name)
+                            new_doc_fitz = fitz.open("temp_new_pdf.pdf")
+                            p_q_r = len(new_doc_fitz) - 6
+                            q = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 5)
+                            r = extract_table_value("temp_new_pdf.pdf", p_q_r, 12, 5)
+                            s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
+                            values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
+                        else:
+                            remove_start = "在人生的重要阶段提取："
+                            remove_end = "提取方式 3："
+                        
+                        output_bio = process_word_template(template_file, values, remove_start, remove_end)
+                        st.success("✅ 處理完成！")
+                        st.download_button("📥 下載 Word 文件", output_bio, file_name="output.docx")
 
-elif choice in ["一人重疾險", "二人重疾險", "三人重疾險", "四人重疾險"]:
-    num_files = {"一人重疾險": 1, "二人重疾險": 2, "三人重疾險": 3, "四人重疾險": 4}[choice]
-    pdf_files = []
-    for idx in range(num_files):
-        pdf_files.append(st.file_uploader(f"選擇第 {idx+1} 個 PDF 文件", type=["pdf"], key=f"pdf_{idx}"))
-    
-    if st.button("開始處理") and template_file and all(pdf_files):
-        with st.spinner("正在處理中..."):
-            all_values = {}
-            suffixes = ["", "1", "2", "3"]
-            for idx, pdf in enumerate(pdf_files):
-                suffix = suffixes[idx]
-                temp_name = f"temp_pdf_{idx}.pdf"
-                with open(temp_name, "wb") as f:
-                    f.write(pdf.getbuffer())
-                
-                fn_vals = extract_values_from_filename(pdf.name)
-                if fn_vals:
-                    all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
-                
-                # 嚴格對齊原始代碼邏輯
-                d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
-                d = d_vals[3] if len(d_vals) > 3 else "N/A"
-                
-                tables_p4 = camelot.read_pdf(temp_name, pages='4', flavor='stream')
-                num_rows_p4 = tables_p4[0].df.shape[0] if tables_p4 else 0
-                
-                e = extract_table_value(temp_name, 4, num_rows_p4 - 8, 8)
-                f = extract_table_value(temp_name, 4, num_rows_p4 - 6, 8)
-                g = extract_table_value(temp_name, 4, num_rows_p4 - 4, 8)
-                h = extract_table_value(temp_name, 4, num_rows_p4 - 2, 8)
-                
-                all_values.update({
-                    f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h
-                })
-            
-            output_bio = process_word_template(template_file, all_values)
-            st.success("處理完成！")
-            st.download_button("下載生成的 Word 文件", output_bio, file_name="output.docx")
+            elif choice in ["一人重疾險", "二人重疾險", "三人重疾險", "四人重疾險"]:
+                if not all(pdf_files):
+                    st.error("請上傳所有 PDF 文件！")
+                else:
+                    all_values = {}
+                    suffixes = ["", "1", "2", "3"]
+                    for idx, pdf in enumerate(pdf_files):
+                        suffix = suffixes[idx]
+                        temp_name = f"temp_pdf_{idx}.pdf"
+                        with open(temp_name, "wb") as f:
+                            f.write(pdf.getbuffer())
+                        fn_vals = extract_values_from_filename(pdf.name)
+                        if fn_vals:
+                            all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
+                        d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
+                        d = d_vals[3] if len(d_vals) > 3 else "N/A"
+                        tables_p4 = camelot.read_pdf(temp_name, pages='4', flavor='stream')
+                        num_rows_p4 = tables_p4[0].df.shape[0] if tables_p4 else 0
+                        e = extract_table_value(temp_name, 4, num_rows_p4 - 8, 8)
+                        f = extract_table_value(temp_name, 4, num_rows_p4 - 6, 8)
+                        g = extract_table_value(temp_name, 4, num_rows_p4 - 4, 8)
+                        h = extract_table_value(temp_name, 4, num_rows_p4 - 2, 8)
+                        all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
+                    
+                    output_bio = process_word_template(template_file, all_values)
+                    st.success("✅ 處理完成！")
+                    st.download_button("📥 下載 Word 文件", output_bio, file_name="output.docx")
 
-st.sidebar.markdown("---")
-st.sidebar.info("請確保上傳的 PDF 格式與模板要求一致。")
+st.markdown("---")
+st.caption("💡 提示：在手機瀏覽器中點擊『分享』並選擇『添加到主螢幕』，即可像 App 一樣使用。")
