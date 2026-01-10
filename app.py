@@ -78,12 +78,10 @@ def evaluate_expression(expression, values):
 def replace_and_evaluate_in_run(run, values):
     """在 Word 的 Run 对象中执行替换"""
     full_text = run.text
-    # 1. 直接替换 {key}
     for key, value in values.items():
         placeholder = f"{{{key}}}"
         full_text = full_text.replace(placeholder, str(value) if value is not None else "N/A")
 
-    # 2. 计算 {{expression}}
     expressions = re.findall(r'\{\{[^\}]+\}\}', full_text)
     for expr in expressions:
         expr_clean = expr.strip("{}")
@@ -192,65 +190,78 @@ def replace_values_in_word_template_append(template_path, output_path, values, r
     doc.save(output_path)
 
 # ==========================================
-# 3. 核心修复逻辑：智能行搜索与求和
+# 3. 核心修复逻辑：使用 PyMuPDF 直接扫描文本行
 # ==========================================
 
-def get_summed_value_by_age(df, target_age):
+def get_value_from_page_text_fitz(pdf_path, page_index_0_based, target_age):
     """
-    智能查找逻辑：
-    1. 遍历表格每一行，寻找包含 target_age (如 "56") 的行。
-    2. 找到行后，提取该行所有有效的数值。
-    3. 取最后3个数值相加 (对应：保证值 + 红利A + 红利B)。
+    终极提取方案：
+    不使用 Camelot 解析表格，而是直接读取 PDF 文本。
+    1. 找到包含 target_age (如 "56") 的那一行文本。
+    2. 提取行内所有数字。
+    3. 智能计算总和。
     """
-    target_age_str = str(target_age)
-    
-    for index, row in df.iterrows():
-        # 1. 将整行转为字符串列表
-        row_str_list = [str(x).strip() for x in row.values]
+    try:
+        doc = fitz.open(pdf_path)
+        # 确保页码不越界
+        if page_index_0_based >= len(doc):
+            return "N/A"
         
-        # 2. 检查这一行是否包含目标年龄 (通常在第1或第2列)
-        # 我们检查前3列即可，防止误匹配到后面的金额
-        found_age = False
-        for cell in row_str_list[:3]:
-            # 精确匹配 "56" 或者 "56.0"
-            if cell == target_age_str or cell == f"{target_age_str}.0":
-                found_age = True
-                break
+        page = doc[page_index_0_based]
+        text = page.get_text("text") # 提取纯文本
         
-        if found_age:
-            # 3. 提取该行所有的数值
-            numbers = []
-            for cell in row_str_list:
-                # 去除逗号
-                clean_cell = cell.replace(',', '').replace(' ', '')
-                # 尝试转为浮点数
-                try:
-                    val = float(clean_cell)
-                    numbers.append(val)
-                except ValueError:
+        # 按行分割
+        lines = text.split('\n')
+        
+        target_str = str(target_age)
+        
+        for line in lines:
+            # 清理空白字符
+            line_clean = line.strip()
+            # 检查这一行是否包含目标年龄
+            # 使用 split() 确保 "56" 是独立的词，防止匹配到 "156" 或 "5600"
+            parts = line_clean.split()
+            
+            if target_str in parts:
+                # 找到了包含年龄的行，提取所有数字
+                # 正则匹配：支持 1,000 或 500.00 格式
+                numbers = re.findall(r'[\d,]+', line_clean)
+                
+                # 转换为浮点数，并过滤掉小数字（年龄、年份等）
+                valid_nums = []
+                for num in numbers:
+                    try:
+                        val = float(num.replace(',', ''))
+                        # 假设金额通常大于 200，防止把年龄(56)或年份(20)算进去
+                        if val > 200: 
+                            valid_nums.append(val)
+                    except:
+                        pass
+                
+                if not valid_nums:
                     continue
-            
-            # 4. 逻辑推断：我们需要最后3个大数相加
-            if len(numbers) >= 3:
-                # 取最后三个数
-                v1 = numbers[-1]
-                v2 = numbers[-2]
-                v3 = numbers[-3]
                 
-                # 简单的启发式规则：金额通常大于 200，防止把年龄加进去
-                valid_values = [n for n in numbers if n > 200] 
+                # --- 智能计算逻辑 ---
                 
-                if len(valid_values) >= 3:
-                    total = valid_values[-1] + valid_values[-2] + valid_values[-3]
+                # 场景 A: 表格里已经有了总数 [分量1, 分量2, 分量3, 总数]
+                # 检查最后一个数是否等于前三个数之和
+                if len(valid_nums) >= 4:
+                    last = valid_nums[-1]
+                    prev3_sum = valid_nums[-2] + valid_nums[-3] + valid_nums[-4]
+                    # 允许 2 的误差（四舍五入）
+                    if abs(last - prev3_sum) < 2:
+                        return "{:,.0f}".format(last)
+                
+                # 场景 B: 表格里没有总数，或者读取漏了 [分量1, 分量2, 分量3]
+                # 强制求和最后三个大数
+                if len(valid_nums) >= 3:
+                    total = valid_nums[-1] + valid_nums[-2] + valid_nums[-3]
                     return "{:,.0f}".format(total)
-                else:
-                    # 如果过滤后不足3个，直接加最后3个原始提取的数
-                    total = v1 + v2 + v3
-                    return "{:,.0f}".format(total)
-            
-            return "N/A (数据不足)"
-
-    return "N/A"
+                    
+        return "N/A"
+    except Exception as e:
+        print(f"Fitz extraction error: {e}")
+        return "N/A"
 
 # ==========================================
 # 4. 业务处理流程
@@ -270,24 +281,19 @@ def process_code1(pdf_file_path, new_pdf_file_path, template_path, output_path):
     g = extract_table_value(pdf_file_path, page_num_g_h, 11, 5)
     h = extract_table_value(pdf_file_path, page_num_g_h, 12, 5)
 
-    # 3. 第6页复杂数据提取 (i, j, k, l, m) - 使用智能搜索逻辑
-    tables_page_6 = camelot.read_pdf(pdf_file_path, pages='6', flavor='stream')
-    i = j = k = l = m = "N/A"
-    
-    if len(tables_page_6) > 0:
-        df_page_6 = tables_page_6[0].df
-        # 智能搜索年龄行
-        i = get_summed_value_by_age(df_page_6, 56)
-        j = get_summed_value_by_age(df_page_6, 66)
-        k = get_summed_value_by_age(df_page_6, 76)
-        l = get_summed_value_by_age(df_page_6, 86)
-        m = get_summed_value_by_age(df_page_6, 96)
+    # 3. 第6页复杂数据提取 (i, j, k, l, m) - 使用 Fitz 文本扫描
+    # 注意：PyMuPDF 页码从 0 开始，所以第 6 页是 index 5
+    i = get_value_from_page_text_fitz(pdf_file_path, 5, 56)
+    j = get_value_from_page_text_fitz(pdf_file_path, 5, 66)
+    k = get_value_from_page_text_fitz(pdf_file_path, 5, 76)
+    l = get_value_from_page_text_fitz(pdf_file_path, 5, 86)
+    m = get_value_from_page_text_fitz(pdf_file_path, 5, 96)
 
     pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m}
     values = dict(zip("abcdef", filename_values))
     values.update(pdf_values)
 
-    # 4. 生成文档 (无分阶段提取)
+    # 4. 生成文档
     if not new_pdf_file_path:
         remove_text_start = "在人生的重要阶段提取："
         remove_text_end = "不提取分红，在某年，把累积的本金"
@@ -333,16 +339,12 @@ def process_code4(pdf_file_path, new_pdf_file_path, template_path, output_path):
     s_string = extract_table_value(pdf_file_path, page_num_s, 11, 0)
     s = extract_numeric_value_from_string(s_string)
 
-    # 第6页提取 - 使用智能搜索逻辑
-    tables_page_6 = camelot.read_pdf(pdf_file_path, pages='6', flavor='stream')
-    i = j = k = l = m = "N/A"
-    if len(tables_page_6) > 0:
-        df_page_6 = tables_page_6[0].df
-        i = get_summed_value_by_age(df_page_6, 56)
-        j = get_summed_value_by_age(df_page_6, 66)
-        k = get_summed_value_by_age(df_page_6, 76)
-        l = get_summed_value_by_age(df_page_6, 86)
-        m = get_summed_value_by_age(df_page_6, 96)
+    # 第6页提取 - 使用 Fitz 文本扫描
+    i = get_value_from_page_text_fitz(pdf_file_path, 5, 56)
+    j = get_value_from_page_text_fitz(pdf_file_path, 5, 66)
+    k = get_value_from_page_text_fitz(pdf_file_path, 5, 76)
+    l = get_value_from_page_text_fitz(pdf_file_path, 5, 86)
+    m = get_value_from_page_text_fitz(pdf_file_path, 5, 96)
 
     pdf_values = {"g": g, "h": h, "i": i, "j": j, "k": k, "l": l, "m": m, "s": s}
     values = dict(zip("abcdef", filename_values))
