@@ -5,5 +5,4 @@ default-jdk
 fonts-wqy-zenhei
 fonts-wqy-microhei
 xfonts-wqy
-fonts-arphic-ukai
-fonts-arphic-uming
+
