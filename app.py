@@ -5,10 +5,8 @@ import camelot
 import fitz  # PyMuPDF
 import pdfplumber
 from docx import Document
-from docx.shared import Pt, Twips
+from docx.shared import Pt
 from docx.oxml.ns import qn
-from docx.enum.text import WD_LINE_SPACING
-from docx.enum.table import WD_ROW_HEIGHT_RULE
 import pandas as pd
 import io
 import subprocess
@@ -28,66 +26,6 @@ pwa_html = """
 """
 
 # --- 公共函數部分 ---
-
-def fix_paragraph_spacing(paragraph):
-    """強制設置段落行距為單倍，並清空段前段後間距，取消網格對齊"""
-    pPr = paragraph._element.get_or_add_pPr()
-    
-    # 1. 取消對齊文檔網格
-    snapToGrid = pPr.find(qn('w:snapToGrid'))
-    if snapToGrid is not None:
-        pPr.remove(snapToGrid)
-    
-    # 2. 強制設置行距為單倍 (使用 240 單位)
-    spacing = pPr.get_or_add_spacing()
-    spacing.set(qn('w:line'), '240')
-    spacing.set(qn('w:lineRule'), 'auto')
-    
-    # 3. 清空段前段後間距
-    spacing.set(qn('w:before'), '0')
-    spacing.set(qn('w:after'), '0')
-
-def fix_table_formatting(table):
-    """強制固定表格行高，清空單元格邊距，防止 PDF 轉換時撐大"""
-    for row in table.rows:
-        # 設置行高為「精確值」(Exactly)，通常 18 磅對於 10.5 磅字體非常緊湊
-        row.height = Pt(18)
-        row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
-        
-        for cell in row.cells:
-            # 清空單元格上下邊距
-            tcPr = cell._element.get_or_add_tcPr()
-            mar = tcPr.find(qn('w:tcMar'))
-            if mar is None:
-                mar = cell._element.makeelement(qn('w:tcMar'))
-                tcPr.append(mar)
-            for side in ['top', 'bottom']:
-                node = mar.find(qn(f'w:{side}'))
-                if node is None:
-                    node = cell._element.makeelement(qn(f'w:{side}'))
-                    mar.append(node)
-                node.set(qn('w:w'), '0')
-                node.set(qn('w:type'), 'dxa')
-            
-            for paragraph in cell.paragraphs:
-                fix_paragraph_spacing(paragraph)
-
-def set_global_font_and_spacing(doc):
-    """全局設置字體為宋體，並修復行距與表格高度問題"""
-    for paragraph in doc.paragraphs:
-        fix_paragraph_spacing(paragraph)
-        for run in paragraph.runs:
-            run.font.name = 'SimSun'
-            run._element.rPr.get_or_add_rFonts().set(qn('w:eastAsia'), 'SimSun')
-            
-    for table in doc.tables:
-        fix_table_formatting(table)
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        run.font.name = 'SimSun'
-                        run._element.rPr.get_or_add_rFonts().set(qn('w:eastAsia'), 'SimSun')
 
 def extract_values_from_filename(filename):
     values = re.findall(r'\d+', filename)
@@ -176,8 +114,6 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
     if extra_removals:
         for start, end in extra_removals:
             delete_specified_range(doc, start, end)
-    
-    set_global_font_and_spacing(doc)
             
     bio = io.BytesIO()
     doc.save(bio)
