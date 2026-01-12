@@ -5,9 +5,10 @@ import camelot
 import fitz  # PyMuPDF
 import pdfplumber
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Twips
 from docx.oxml.ns import qn
 from docx.enum.text import WD_LINE_SPACING
+from docx.enum.table import WD_ROW_HEIGHT_RULE
 import pandas as pd
 import io
 import subprocess
@@ -37,17 +38,42 @@ def fix_paragraph_spacing(paragraph):
     if snapToGrid is not None:
         pPr.remove(snapToGrid)
     
-    # 2. 強制設置行距為單倍 (Single Spacing)
+    # 2. 強制設置行距為單倍 (使用 240 單位)
     spacing = pPr.get_or_add_spacing()
-    spacing.set(qn('w:line'), '240')  # 240 單位等於 1 倍行距
+    spacing.set(qn('w:line'), '240')
     spacing.set(qn('w:lineRule'), 'auto')
     
     # 3. 清空段前段後間距
     spacing.set(qn('w:before'), '0')
     spacing.set(qn('w:after'), '0')
 
+def fix_table_formatting(table):
+    """強制固定表格行高，清空單元格邊距，防止 PDF 轉換時撐大"""
+    for row in table.rows:
+        # 設置行高為「精確值」(Exactly)，通常 18 磅對於 10.5 磅字體非常緊湊
+        row.height = Pt(18)
+        row.height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+        
+        for cell in row.cells:
+            # 清空單元格上下邊距
+            tcPr = cell._element.get_or_add_tcPr()
+            mar = tcPr.find(qn('w:tcMar'))
+            if mar is None:
+                mar = cell._element.makeelement(qn('w:tcMar'))
+                tcPr.append(mar)
+            for side in ['top', 'bottom']:
+                node = mar.find(qn(f'w:{side}'))
+                if node is None:
+                    node = cell._element.makeelement(qn(f'w:{side}'))
+                    mar.append(node)
+                node.set(qn('w:w'), '0')
+                node.set(qn('w:type'), 'dxa')
+            
+            for paragraph in cell.paragraphs:
+                fix_paragraph_spacing(paragraph)
+
 def set_global_font_and_spacing(doc):
-    """全局設置字體為宋體，並修復行距問題"""
+    """全局設置字體為宋體，並修復行距與表格高度問題"""
     for paragraph in doc.paragraphs:
         fix_paragraph_spacing(paragraph)
         for run in paragraph.runs:
@@ -55,10 +81,10 @@ def set_global_font_and_spacing(doc):
             run._element.rPr.get_or_add_rFonts().set(qn('w:eastAsia'), 'SimSun')
             
     for table in doc.tables:
+        fix_table_formatting(table)
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
-                    fix_paragraph_spacing(paragraph)
                     for run in paragraph.runs:
                         run.font.name = 'SimSun'
                         run._element.rPr.get_or_add_rFonts().set(qn('w:eastAsia'), 'SimSun')
