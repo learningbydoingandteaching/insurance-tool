@@ -360,7 +360,7 @@ if st.button("🚀 開始處理"):
                         
                         # 重疾險提取邏輯優化：使用關鍵字定位頁面
                         target_page_summary = find_page_by_keyword(temp_name, "説明摘要") or 6
-                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 56")
+                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
                         f = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
                         g = get_value_by_text_search(temp_name, target_page_summary, "@ANB 76")
                         h = get_value_by_text_search(temp_name, target_page_summary, "@ANB 86")
