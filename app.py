@@ -12,10 +12,6 @@ import pandas as pd
 import io
 import subprocess
 import streamlit.components.v1 as components
-import matplotlib.pyplot as plt
-import base64
-from jinja2 import Template
-from html2image import Html2Image
 
 # --- 移動端 App 化支持 (PWA) ---
 pwa_html = """
@@ -32,15 +28,28 @@ pwa_html = """
 
 # --- 公共函數部分 ---
 
-def set_global_font_to_simsun(doc):
-    """將文檔中所有文字設置為宋體，並取消對齊文檔網格以修復 PDF 行距問題"""
+def fix_paragraph_spacing(paragraph):
+    """強制設置段落行距為單倍，並清空段前段後間距，取消網格對齊"""
+    pPr = paragraph._element.get_or_add_pPr()
+    
+    # 1. 取消對齊文檔網格
+    snapToGrid = pPr.find(qn('w:snapToGrid'))
+    if snapToGrid is not None:
+        pPr.remove(snapToGrid)
+    
+    # 2. 強制設置行距為單倍 (Single Spacing)
+    spacing = pPr.get_or_add_spacing()
+    spacing.set(qn('w:line'), '240')  # 240 單位等於 1 倍行距
+    spacing.set(qn('w:lineRule'), 'auto')
+    
+    # 3. 清空段前段後間距
+    spacing.set(qn('w:before'), '0')
+    spacing.set(qn('w:after'), '0')
+
+def set_global_font_and_spacing(doc):
+    """全局設置字體為宋體，並修復行距問題"""
     for paragraph in doc.paragraphs:
-        # 取消對齊文檔網格
-        pPr = paragraph._element.get_or_add_pPr()
-        snapToGrid = pPr.find(qn('w:snapToGrid'))
-        if snapToGrid is not None:
-            pPr.remove(snapToGrid)
-        
+        fix_paragraph_spacing(paragraph)
         for run in paragraph.runs:
             run.font.name = 'SimSun'
             run._element.rPr.get_or_add_rFonts().set(qn('w:eastAsia'), 'SimSun')
@@ -49,10 +58,7 @@ def set_global_font_to_simsun(doc):
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
-                    pPr = paragraph._element.get_or_add_pPr()
-                    snapToGrid = pPr.find(qn('w:snapToGrid'))
-                    if snapToGrid is not None:
-                        pPr.remove(snapToGrid)
+                    fix_paragraph_spacing(paragraph)
                     for run in paragraph.runs:
                         run.font.name = 'SimSun'
                         run._element.rPr.get_or_add_rFonts().set(qn('w:eastAsia'), 'SimSun')
@@ -145,7 +151,7 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
         for start, end in extra_removals:
             delete_specified_range(doc, start, end)
     
-    set_global_font_to_simsun(doc)
+    set_global_font_and_spacing(doc)
             
     bio = io.BytesIO()
     doc.save(bio)
@@ -206,75 +212,6 @@ def convert_docx_to_pdf(docx_bio):
         pdf_data = f.read()
     return pdf_data
 
-# --- 營銷長圖生成邏輯 ---
-
-def generate_marketing_image(values, html_template_path):
-    # 1. 準備數據
-    annual_premium = values.get('a', '10,000')
-    pay_period = values.get('b', '5')
-    total_invest = f"{float(annual_premium.replace(',','')) * int(pay_period):,.0f}"
-    
-    # 策略二動態數據
-    strategy_b_items = []
-    base_age = int(values.get('c', '29'))
-    check_ages = [56, 66, 76, 86, 96]
-    vals = [values.get('i'), values.get('j'), values.get('k'), values.get('l'), values.get('m')]
-    
-    max_val = 0
-    for v in vals:
-        if v and v != 'N/A':
-            max_val = max(max_val, float(v.replace(',','')))
-
-    for age, val in zip(check_ages, vals):
-        if val and val != 'N/A':
-            v_num = float(val.replace(',',''))
-            ratio = v_num / (float(annual_premium.replace(',','')) * int(pay_period))
-            width = (v_num / max_val * 100) if max_val > 0 else 0
-            strategy_b_items.append({
-                'age': f"{age}岁",
-                'value': f"${add_thousand_separator(v_num)}",
-                'ratio': f"{ratio:.1f}倍",
-                'width': f"{width:.0f}%"
-            })
-
-    # 2. 生成圖表
-    plt.figure(figsize=(6, 3), facecolor='white')
-    x = [base_age + 5, 56, 66, 76, 86, 96]
-    y = [0] + [float(v.replace(',','')) for v in vals if v != 'N/A']
-    plt.fill_between(x, y, color='#fee2e2', alpha=0.5)
-    plt.plot(x, y, color='#dc2626', linewidth=3)
-    plt.axis('off')
-    plt.tight_layout()
-    
-    img_bio = io.BytesIO()
-    plt.savefig(img_bio, format='png', dpi=150, bbox_inches='tight')
-    plt.close()
-    chart_base64 = base64.b64encode(img_bio.getvalue()).decode()
-
-    # 3. 渲染 HTML
-    with open(html_template_path, 'r', encoding='utf-8') as f:
-        html_content = f.read()
-    
-    # 簡單替換 (Jinja2 風格)
-    template = Template(html_content)
-    rendered_html = template.render(
-        annual_premium=annual_premium,
-        pay_period=pay_period,
-        total_invest=total_invest,
-        withdraw_period="39-90岁",
-        withdraw_amount=values.get('h', '4,651'),
-        legacy_value=values.get('m', '3,008,582'),
-        strategy_b_items=strategy_b_items,
-        chart_base64=chart_base64
-    )
-    
-    # 4. 截圖
-    hti = Html2Image(custom_flags=['--no-sandbox', '--disable-gpu', '--headless'])
-    hti.screenshot(html_str=rendered_html, save_as='marketing.png', size=(420, 1200))
-    
-    with open('marketing.png', 'rb') as f:
-        return f.read()
-
 # --- 提取邏輯 ---
 
 def find_page_by_keyword(pdf_path, keyword):
@@ -334,10 +271,7 @@ sub_choice = None
 if "重疾險" in choice:
     sub_choice = st.radio("選擇產品類型", ["危疾單次保", "誠保一生"], horizontal=True)
 
-export_options = ["Word (.docx)", "PDF (.pdf)"]
-if choice in ["儲蓄險", "儲蓄險添加"]:
-    export_options.append("營銷長圖 (.png)")
-export_format = st.radio("選擇導出格式", export_options, horizontal=True)
+export_format = st.radio("選擇導出格式", ["Word (.docx)", "PDF (.pdf)"], horizontal=True)
 
 with st.expander("📁 上傳 PDF 文件", expanded=True):
     if choice in ["儲蓄險", "儲蓄險添加"]:
@@ -366,7 +300,7 @@ if st.button("🚀 開始處理"):
             else:
                 template_path = template_map[choice]
             
-            if not os.path.exists(template_path) and "長圖" not in export_format:
+            if not os.path.exists(template_path):
                 st.error(f"❌ 找不到模板文件: {template_path}。")
                 st.stop()
 
@@ -395,40 +329,34 @@ if st.button("🚀 開始處理"):
                         values = dict(zip("abcdef", filename_values))
                         values.update(pdf_values)
                         
-                        if "長圖" in export_format:
-                            img_data = generate_marketing_image(values, "pic.html")
-                            st.success("✅ 長圖生成完成！")
-                            st.image(img_data)
-                            st.download_button("📥 下載營銷長圖", img_data, file_name="概览.png", mime="image/png")
+                        merge_start, merge_end = None, None
+                        extra_removals = []
+                        if choice == "儲蓄險添加":
+                            extra_removals.append(("信守明天多元货币储蓄计划概要：", "信守明天多元货币储蓄计划概要："))
+                            extra_removals.append(("(保诚保险收益最高的储蓄产品，", "适合身体抱恙不能买寿险人士。"))
+                        
+                        if new_pdf_file:
+                            with open("temp_new_pdf.pdf", "wb") as f:
+                                f.write(new_pdf_file.getbuffer())
+                            n, o, p = extract_nop_from_filename(new_pdf_file.name)
+                            new_doc_fitz = fitz.open("temp_new_pdf.pdf")
+                            p_q_r = len(new_doc_fitz) - 6
+                            q = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 5)
+                            r = extract_table_value("temp_new_pdf.pdf", p_q_r, 12, 5)
+                            s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
+                            values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
                         else:
-                            merge_start, merge_end = None, None
-                            extra_removals = []
-                            if choice == "儲蓄險添加":
-                                extra_removals.append(("信守明天多元货币储蓄计划概要：", "信守明天多元货币储蓄计划概要："))
-                                extra_removals.append(("(保诚保险收益最高的储蓄产品，", "适合身体抱恙不能买寿险人士。"))
-                            
-                            if new_pdf_file:
-                                with open("temp_new_pdf.pdf", "wb") as f:
-                                    f.write(new_pdf_file.getbuffer())
-                                n, o, p = extract_nop_from_filename(new_pdf_file.name)
-                                new_doc_fitz = fitz.open("temp_new_pdf.pdf")
-                                p_q_r = len(new_doc_fitz) - 6
-                                q = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 5)
-                                r = extract_table_value("temp_new_pdf.pdf", p_q_r, 12, 5)
-                                s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
-                                values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
-                            else:
-                                merge_start = "在人生的重要阶段提取："
-                                merge_end = "提取方式 3："
-                            
-                            output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
-                            if "PDF" in export_format:
-                                pdf_data = convert_docx_to_pdf(output_docx)
-                                st.success("✅ PDF 生成完成！")
-                                st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
-                            else:
-                                st.success("✅ Word 生成完成！")
-                                st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
+                            merge_start = "在人生的重要阶段提取："
+                            merge_end = "提取方式 3："
+                        
+                        output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
+                        if "PDF" in export_format:
+                            pdf_data = convert_docx_to_pdf(output_docx)
+                            st.success("✅ PDF 生成完成！")
+                            st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
+                        else:
+                            st.success("✅ Word 生成完成！")
+                            st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
                         
             elif "重疾險" in choice:
                 if not all(pdf_files):
@@ -445,7 +373,7 @@ if st.button("🚀 開始處理"):
                         if fn_vals:
                             all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
                         target_page_summary = find_page_by_keyword(temp_name, "説明摘要") or 6
-                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
+                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 56")
                         f = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
                         g = get_value_by_text_search(temp_name, target_page_summary, "@ANB 76")
                         h = get_value_by_text_search(temp_name, target_page_summary, "@ANB 86")
@@ -467,4 +395,20 @@ if st.button("🚀 開始處理"):
             st.error(f"❌ 發生錯誤: {str(e)}")
 
 st.markdown("---")
-st.caption("💡 提示：請確保所有 Word 模板和 HTML 模板已上傳至 GitHub 倉庫根目錄。")
+st.info("""
+### 📝 文件命名規則說明
+
+**一、文件命名格式舉例：**
+1. **儲蓄險：**
+   - **連續提取：** `4岁人士存20000美金存5年_19到85岁提取12000`
+   - **分階段提取：** `6岁人士存10000美金存5年_19到22岁提取8000_31岁提取20000_61到85岁提取31000`
+2. **單次保：**
+   - `1岁男孩 15万美金起始保额 基础单次保25年供`
+3. **加倍保：**
+   - `4岁男孩 10万美金起始保额 新加倍保20年供`
+
+**二、命名格式注意兩個關鍵：**
+1. 核心是**數字的順序**不要錯。
+2. **儲蓄險**的金額不以萬計，而**重疾險**則以萬計。
+""")
+st.caption("💡 提示：請確保所有 Word 模板已上傳至 GitHub 倉庫根目錄。")
