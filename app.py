@@ -94,7 +94,7 @@ def replace_and_evaluate_in_paragraph(paragraph, values):
     for run in paragraph.runs:
         replace_and_evaluate_in_run(run, values)
 
-def process_word_template(template_path, values, remove_text_start=None, remove_text_end=None, extra_removals=None):
+def process_word_template(template_path, values, merge_start_text=None, merge_end_text=None, extra_removals=None):
     if not os.path.exists(template_path):
         raise FileNotFoundError(f"找不到模板文件: {template_path}")
     
@@ -107,8 +107,8 @@ def process_word_template(template_path, values, remove_text_start=None, remove_
                 for paragraph in cell.paragraphs:
                     replace_and_evaluate_in_paragraph(paragraph, values)
     
-    if remove_text_start and remove_text_end:
-        delete_specified_range(doc, remove_text_start, remove_text_end)
+    if merge_start_text and merge_end_text:
+        merge_paragraphs_and_delete_between(doc, merge_start_text, merge_end_text)
     if extra_removals:
         for start, end in extra_removals:
             delete_specified_range(doc, start, end)
@@ -117,6 +117,34 @@ def process_word_template(template_path, values, remove_text_start=None, remove_
     doc.save(bio)
     bio.seek(0)
     return bio
+
+def merge_paragraphs_and_delete_between(doc, start_text, end_text):
+    paragraphs = list(doc.paragraphs)
+    start_idx = -1
+    end_idx = -1
+    for i, p in enumerate(paragraphs):
+        if start_text in p.text:
+            start_idx = i
+        if end_text in p.text and start_idx != -1:
+            end_idx = i
+            break
+    
+    if start_idx != -1 and end_idx != -1:
+        # 將結束段落的內容合併到起始段落
+        start_para = paragraphs[start_idx]
+        end_para = paragraphs[end_idx]
+        for run in end_para.runs:
+            new_run = start_para.add_run(run.text)
+            new_run.bold = run.bold
+            new_run.italic = run.italic
+            new_run.font.name = run.font.name
+            new_run.font.size = run.font.size
+            new_run.font.color.rgb = run.font.color.rgb
+        
+        # 刪除起始段落和結束段落之間的所有段落，以及結束段落本身
+        for i in range(end_idx, start_idx, -1):
+            p = paragraphs[i]._element
+            p.getparent().remove(p)
 
 def delete_specified_range(doc, start_text, end_text):
     paragraphs = list(doc.paragraphs)
@@ -141,7 +169,7 @@ def convert_docx_to_pdf(docx_bio):
         pdf_data = f.read()
     return pdf_data
 
-# --- 儲蓄險特有邏輯 ---
+# --- 提取邏輯優化 ---
 
 def find_page_by_keyword(pdf_path, keyword):
     try:
@@ -196,7 +224,6 @@ st.title("📄 PDF 計劃書工具")
 menu = ["儲蓄險", "儲蓄險添加", "一人重疾險", "二人重疾險", "三人重疾險", "四人重疾險"]
 choice = st.selectbox("選擇功能類型", menu)
 
-# 重疾險子選項
 sub_choice = None
 if "重疾險" in choice:
     sub_choice = st.radio("選擇產品類型", ["危疾單次保", "誠保一生"], horizontal=True)
@@ -213,10 +240,9 @@ with st.expander("📁 上傳 PDF 文件", expanded=True):
         for idx in range(num_files):
             pdf_files.append(st.file_uploader(f"選擇第 {idx+1} 個 PDF", type=["pdf"], key=f"pdf_{idx}"))
 
-# 模板路徑映射
 template_map = {
     "儲蓄險": "savings1.docx",
-    "儲蓄險添加": "savings.docx",
+    "儲蓄險添加": "savings2.docx",
     "一人重疾險": {"危疾單次保": "one1.docx", "誠保一生": "one2.docx"},
     "二人重疾險": {"危疾單次保": "two1.docx", "誠保一生": "two2.docx"},
     "三人重疾險": {"危疾單次保": "three1.docx", "誠保一生": "three2.docx"},
@@ -226,14 +252,13 @@ template_map = {
 if st.button("🚀 開始處理"):
     with st.spinner("正在處理中..."):
         try:
-            # 確定模板路徑
             if "重疾險" in choice:
                 template_path = template_map[choice][sub_choice]
             else:
                 template_path = template_map[choice]
             
             if not os.path.exists(template_path):
-                st.error(f"❌ 找不到模板文件: {template_path}。請確保該文件已上傳到 GitHub 倉庫。")
+                st.error(f"❌ 找不到模板文件: {template_path}。")
                 st.stop()
 
             if choice in ["儲蓄險", "儲蓄險添加"]:
@@ -261,7 +286,7 @@ if st.button("🚀 開始處理"):
                         values = dict(zip("abcdef", filename_values))
                         values.update(pdf_values)
                         
-                        remove_start, remove_end = None, None
+                        merge_start, merge_end = None, None
                         extra_removals = []
                         if choice == "儲蓄險添加":
                             extra_removals.append(("信守明天多元货币储蓄计划概要：", "信守明天多元货币储蓄计划概要："))
@@ -278,10 +303,10 @@ if st.button("🚀 開始處理"):
                             s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
                             values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
                         else:
-                            remove_start = "在人生的重要阶段提取："
-                            remove_end = "提取方式 3："
+                            merge_start = "在人生的重要阶段提取："
+                            merge_end = "提取方式 3："
                         
-                        output_docx = process_word_template(template_path, values, remove_start, remove_end, extra_removals)
+                        output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
                         
             elif "重疾險" in choice:
                 if not all(pdf_files):
@@ -297,25 +322,29 @@ if st.button("🚀 開始處理"):
                         fn_vals = extract_values_from_filename(pdf.name)
                         if fn_vals:
                             all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
+                        
+                        # 重疾險提取邏輯優化：使用關鍵字定位頁面
+                        target_page = find_page_by_keyword(temp_name, "説明摘要") or 6
+                        e = get_value_by_text_search(temp_name, target_page, "@ANB 66")
+                        f = get_value_by_text_search(temp_name, target_page, "@ANB 76")
+                        g = get_value_by_text_search(temp_name, target_page, "@ANB 86")
+                        h = get_value_by_text_search(temp_name, target_page, "@ANB 96")
+                        
+                        # 保留原始 d 的提取邏輯
                         d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
                         d = d_vals[3] if len(d_vals) > 3 else "N/A"
-                        tables_p4 = camelot.read_pdf(temp_name, pages='4', flavor='stream')
-                        num_rows_p4 = tables_p4[0].df.shape[0] if tables_p4 else 0
-                        e = extract_table_value(temp_name, 4, num_rows_p4 - 8, 8)
-                        f = extract_table_value(temp_name, 4, num_rows_p4 - 6, 8)
-                        g = extract_table_value(temp_name, 4, num_rows_p4 - 4, 8)
-                        h = extract_table_value(temp_name, 4, num_rows_p4 - 2, 8)
+                        
                         all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
                     output_docx = process_word_template(template_path, all_values)
 
-            # 導出結果
+            # 導出結果，統一文件名為「概览」
             if "PDF" in export_format:
                 pdf_data = convert_docx_to_pdf(output_docx)
                 st.success("✅ 處理完成！")
-                st.download_button("📥 下載 PDF 文件", pdf_data, file_name="output.pdf", mime="application/pdf")
+                st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
             else:
                 st.success("✅ 處理完成！")
-                st.download_button("📥 下載 Word 文件", output_docx, file_name="output.docx")
+                st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
 
         except Exception as e:
             st.error(f"❌ 發生錯誤: {str(e)}")
