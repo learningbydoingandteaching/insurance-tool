@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>信守明天 · 多元货币储蓄计划</title>
+    <style>
+        /* --- Reset & Base Styles --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f1f5f9;
+            color: #1e293b;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 420px;
+            background-color: #f8fafc;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+            position: relative;
+            border: 1px solid #e2e8f0;
+        }
+        
+        /* --- Utilities --- */
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .flex { display: flex; }
+        .flex-col { flex-direction: column; }
+        .items-center { align-items: center; }
+        .justify-between { justify-content: space-between; }
+        .justify-center { justify-content: center; }
+        .gap-2 { gap: 8px; }
+        .gap-3 { gap: 12px; }
+        .gap-4 { gap: 16px; }
+        .font-bold { font-weight: 700; }
+        .font-extrabold { font-weight: 800; }
+        .relative { position: relative; }
+        .absolute { position: absolute; }
+        .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+        .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .rounded-full { border-radius: 9999px; }
+        .rounded-lg { border-radius: 8px; }
+        .rounded-xl { border-radius: 12px; }
+        
+        /* --- Section 1: Header --- */
+        .header {
+            background: linear-gradient(135deg, #991b1b 0%, #b91c1c 50%, #7f1d1d 100%);
+            color: white;
+            padding: 32px 32px 50px 32px;
+            position: relative;
+            overflow: hidden;
+        }
+        .header-bg-icon {
+            position: absolute;
+            top: -20px;
+            right: -20px;
+            opacity: 0.1;
+            transform: rotate(10deg);
+            color: white;
+        }
+        .tag-pill {
+            display: inline-block;
+            background-color: rgba(127, 29, 29, 0.4);
+            backdrop-filter: blur(4px);
+            padding: 6px 16px;
+            border-radius: 9999px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            border: 1px solid rgba(248, 113, 113, 0.3);
+            color: #fef3c7;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .main-title {
+            font-size: 30px;
+            line-height: 1.2;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+        }
+        .highlight-gold {
+            color: #facc15;
+            font-size: 36px;
+            display: block;
+            margin-top: 4px;
+        }
+        .feature-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 20px;
+        }
+        .feature-tag {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        /* --- Section 2: Investment Card --- */
+        .invest-card-wrapper {
+            padding: 0 20px;
+            margin-top: -35px;
+            position: relative;
+            z-index: 10;
+        }
+        .invest-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            border-top: 4px solid #eab308;
+        }
+        .data-label {
+            color: #64748b;
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .data-value {
+            font-size: 36px;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -1px;
+        }
+        .data-unit {
+            font-size: 18px;
+            font-weight: 400;
+            color: #94a3b8;
+        }
+        .progress-bg {
+            width: 100%;
+            background-color: #f1f5f9;
+            height: 8px;
+            border-radius: 9999px;
+            margin-bottom: 16px;
+        }
+        .progress-fill {
+            background-color: #eab308;
+            height: 100%;
+            width: 100%;
+            border-radius: 9999px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .cost-note {
+            font-size: 14px;
+            color: #475569;
+            font-weight: 700;
+            background-color: #f8fafc;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #f1f5f9;
+            text-align: center;
+        }
+
+        /* --- Section 3: Chart --- */
+        .chart-section {
+            padding: 32px 24px 24px 24px;
+            background: white;
+            margin-top: 16px;
+        }
+        .section-title-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .icon-box {
+            background-color: #fee2e2;
+            padding: 8px;
+            border-radius: 8px;
+            color: #dc2626;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .section-title {
+            font-size: 20px;
+            font-weight: 800;
+            color: #0f172a;
+        }
+        
+        /* Fixed: Removed fixed height from container to allow content to flow */
+        .chart-container {
+            width: 100%;
+            position: relative;
+        }
+        
+        .chart-badge {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background-color: #dc2626;
+            color: white;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 9999px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            z-index: 5;
+        }
+        
+        .chart-note {
+            font-size: 12px;
+            color: #94a3b8;
+            text-align: center;
+            margin-top: 20px; /* Increased margin */
+            font-weight: 500;
+        }
+        
+        /* Axis Styles */
+        .axis-container {
+            position: relative;
+            height: 20px;
+            width: 100%;
+            margin-top: 8px;
+        }
+        .axis-text {
+            position: absolute;
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 600;
+            transform: translateX(-50%);
+            bottom: 0;
+        }
+        .grid-line { stroke: #f1f5f9; stroke-width: 1; }
+
+        /* --- Section 4: Strategies --- */
+        .strategies-section {
+            background-color: #f8fafc;
+            padding: 32px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .strategy-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+        }
+        .strategy-header {
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom-width: 1px;
+            border-bottom-style: solid;
+        }
+        .strategy-tag {
+            color: white;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .strategy-title {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        
+        /* Strategy A Specifics */
+        .strat-a-header { background-color: #eff6ff; border-bottom-color: #dbeafe; }
+        .strat-a-tag { background-color: #2563eb; }
+        .strat-a-title { color: #1e3a8a; }
+        .strat-a-content { padding: 24px; }
+        .flow-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .age-label { font-size: 14px; color: #64748b; font-weight: 500; margin-bottom: 4px; }
+        .pill-label { font-size: 12px; font-weight: 700; color: #334155; background: #f1f5f9; padding: 4px 10px; border-radius: 9999px; }
+        .arrow-line { flex: 1; height: 1px; background: #e2e8f0; margin: 0 16px; position: relative; }
+        .arrow-icon { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); color: #cbd5e1; }
+        .money-large { font-size: 30px; font-weight: 800; color: #2563eb; font-family: monospace; letter-spacing: -1px; }
+        .money-sub { font-size: 12px; color: #94a3b8; font-weight: 500; }
+        .info-box { background: rgba(239, 246, 255, 0.5); padding: 16px; border-radius: 8px; border: 1px solid #dbeafe; display: flex; gap: 12px; }
+        
+        /* Strategy B Specifics */
+        .strat-b-header { background-color: #fef2f2; border-bottom-color: #fee2e2; }
+        .strat-b-tag { background-color: #dc2626; }
+        .strat-b-title { color: #7f1d1d; }
+        .strat-b-content { padding: 24px; }
+        .desc-text { font-size: 14px; color: #475569; margin-bottom: 20px; line-height: 1.6; font-weight: 500; }
+        .highlight-red { color: #dc2626; font-weight: 700; }
+        
+        /* Progress Bars List */
+        .progress-item { margin-bottom: 16px; }
+        .progress-info { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; position: relative; z-index: 2; }
+        .pi-left { display: flex; align-items: center; gap: 8px; }
+        .pi-age { font-size: 16px; font-weight: 700; color: #1e293b; width: 44px; }
+        .pi-label { font-size: 12px; color: #94a3b8; border-left: 1px solid #e2e8f0; padding-left: 8px; }
+        .pi-val { font-size: 16px; font-weight: 700; color: #0f172a; font-family: monospace; letter-spacing: -0.5px; }
+        .pi-badge { font-size: 12px; font-weight: 700; color: #dc2626; background: #fef2f2; padding: 2px 8px; border-radius: 4px; border: 1px solid #fee2e2; }
+        .pi-bar-bg { width: 100%; background: #f1f5f9; height: 8px; border-radius: 9999px; }
+        .pi-bar-fill { height: 8px; border-radius: 9999px; background: linear-gradient(to right, #f87171, #dc2626); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+
+        /* --- Section 5: Features --- */
+        .features-section {
+            padding: 0 24px 32px 24px;
+            background-color: #f8fafc;
+        }
+        .features-title {
+            text-align: center;
+            font-size: 16px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 24px;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .feature-card {
+            background: white;
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: box-shadow 0.2s;
+        }
+        .feature-card:hover { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .feature-icon-circle {
+            color: #dc2626;
+            margin-bottom: 8px;
+            background-color: #fef2f2;
+            padding: 8px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .feature-name { font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
+        .feature-sub { font-size: 12px; color: #64748b; font-weight: 500; }
+
+        /* --- Section 6: Footer --- */
+        .footer { padding: 24px 24px 48px 24px; background: white; }
+        .cta-box {
+            background-color: #1e293b;
+            color: white;
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .cta-title { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
+        .cta-desc { font-size: 16px; color: #cbd5e1; margin-bottom: 24px; line-height: 1.6; font-weight: 500; }
+        .cta-btn {
+            width: 100%;
+            background: linear-gradient(to right, #facc15, #ca8a04);
+            color: #0f172a;
+            font-weight: 700;
+            padding: 16px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: transform 0.1s;
+        }
+        .cta-btn:active { transform: scale(0.98); }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <!-- 1. Header -->
+        <div class="header">
+            <!-- Background Shield Icon -->
+            <svg class="header-bg-icon" width="220" height="220" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+
+            <div class="relative">
+                <div class="tag-pill">信守明天 · 多元货币储蓄计划</div>
+                <h1 class="main-title">
+                    年存1万，5年布局<br>
+                    <span class="highlight-gold">千万级离岸财富</span>
+                </h1>
+                <div class="feature-tags">
+                    <span class="feature-tag">美金资产配置</span>
+                    <span class="feature-tag">6.5%复利增长</span>
+                    <span class="feature-tag">财富代代相传</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Investment Card -->
+        <div class="invest-card-wrapper">
+            <div class="invest-card">
+                <div class="flex justify-between items-center" style="margin-bottom: 20px;">
+                    <div>
+                        <p class="data-label">总投入本金</p>
+                        <p class="data-value">$50,000 <span class="data-unit">美金</span></p>
+                    </div>
+                    <div class="text-right">
+                        <p class="data-label">缴费期</p>
+                        <p class="data-value">5 <span class="data-unit">年</span></p>
+                    </div>
+                </div>
+                <div class="progress-bg">
+                    <div class="progress-fill"></div>
+                </div>
+                <p class="cost-note">每年仅需存入 $10,000 (约 ¥70,000)</p>
+            </div>
+        </div>
+
+        <!-- 3. Chart Section -->
+        <div class="chart-section">
+            <div class="section-title-row">
+                <div class="icon-box">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                </div>
+                <h2 class="section-title">时间复利 · 滚雪球效应</h2>
+            </div>
+            
+            <div class="chart-container">
+                <div class="chart-badge">60倍回报</div>
+                <!-- SVG Chart -->
+                <svg width="100%" height="220" viewBox="0 0 400 200" preserveAspectRatio="none" style="display: block;">
+                    <defs>
+                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stop-color="#E60012" stop-opacity="0.8"/>
+                            <stop offset="95%" stop-color="#E60012" stop-opacity="0.05"/>
+                        </linearGradient>
+                    </defs>
+                    
+                    <!-- Grid Lines -->
+                    <line x1="0" y1="180" x2="400" y2="180" class="grid-line" />
+                    <line x1="0" y1="120" x2="400" y2="120" class="grid-line" />
+                    <line x1="0" y1="60" x2="400" y2="60" class="grid-line" />
+
+                    <!-- Area Path -->
+                    <path d="
+                        M 0,198 
+                        L 0,198 
+                        C 30,195 50,192 60,190 
+                        C 100,185 150,180 180,170
+                        C 220,155 260,130 300,100
+                        C 340,70 380,30 400,10
+                        L 400,200 
+                        L 0,200 
+                        Z" 
+                        fill="url(#chartGradient)" />
+
+                    <!-- Stroke Line -->
+                    <path d="
+                        M 0,198 
+                        C 30,195 50,192 60,190 
+                        C 100,185 150,180 180,170
+                        C 220,155 260,130 300,100
+                        C 340,70 380,30 400,10" 
+                        fill="none" stroke="#E60012" stroke-width="4" stroke-linecap="round" />
+                </svg>
+                
+                <!-- X Axis Labels (Positioned Absolutely) -->
+                <div class="axis-container">
+                    <!-- 30岁 removed -->
+                    <!-- 56岁 (approx 39%) -->
+                    <span class="axis-text" style="left: 39.4%;">56岁</span>
+                    <!-- 66岁 (approx 54.5%) -->
+                    <span class="axis-text" style="left: 54.5%;">66岁</span>
+                    <!-- 76岁 (approx 69.7%) -->
+                    <span class="axis-text" style="left: 69.7%;">76岁</span>
+                    <!-- 86岁 (approx 84.8%) -->
+                    <span class="axis-text" style="left: 84.8%;">86岁</span>
+                    <!-- 96岁 (100%) - Right aligned -->
+                    <span class="axis-text" style="left: 100%; transform: translateX(-100%);">96岁</span>
+                </div>
+            </div>
+            <p class="chart-note">*图表展示账户总价值随时间复利增长的趋势</p>
+        </div>
+
+        <!-- 4. Strategies -->
+        <div class="strategies-section">
+            
+            <!-- Strategy A -->
+            <div class="strategy-card">
+                <div class="strategy-header strat-a-header">
+                    <span class="strategy-tag strat-a-tag">策略一</span>
+                    <h3 class="strategy-title strat-a-title">自制“退休印钞机”</h3>
+                </div>
+                <div class="strat-a-content">
+                    <div class="flow-row">
+                        <div class="text-center">
+                            <p class="age-label">39-90岁</p>
+                            <span class="pill-label">每年领取</span>
+                        </div>
+                        <div class="arrow-line">
+                            <svg class="arrow-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                        </div>
+                        <div class="text-right">
+                            <p class="money-large">$4,651</p>
+                            <p class="money-sub">约 ¥3.3万/年</p>
+                        </div>
+                    </div>
+                    <div class="info-box">
+                        <div style="margin-top: 2px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        </div>
+                        <div style="font-size: 14px; color: #334155; line-height: 1.5;">
+                            <span style="font-weight: 700; color: #1e40af;">不仅领得久，还能传得下：</span><br>
+                            领完52年养老金后，90岁时账户余额仍有 <span style="font-weight: 700; color: #1e40af;">$199,202</span> (约¥139万) 可免税传承。
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Strategy B -->
+            <div class="strategy-card">
+                <div class="strategy-header strat-b-header">
+                    <span class="strategy-tag strat-b-tag">策略二</span>
+                    <h3 class="strategy-title strat-b-title">财富滚雪球</h3>
+                </div>
+                <div class="strat-b-content">
+                    <p class="desc-text">
+                        若中途不提取，让资金在账户内利滚利，<br>
+                        账户总价值（<span class="highlight-red">可随时一次性拿回</span>）如下：
+                    </p>
+                    
+                    <!-- Progress Items -->
+                    <!-- Item 1 -->
+                    <div class="progress-item">
+                        <div class="progress-info">
+                            <div class="pi-left">
+                                <span class="pi-age">56岁</span>
+                                <span class="pi-label">账户价值:</span>
+                                <span class="pi-val">$240,547</span>
+                            </div>
+                            <span class="pi-badge">4.8倍</span>
+                        </div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 18%;"></div></div>
+                    </div>
+                    <!-- Item 2 -->
+                    <div class="progress-item">
+                        <div class="progress-info">
+                            <div class="pi-left">
+                                <span class="pi-age">66岁</span>
+                                <span class="pi-label">账户价值:</span>
+                                <span class="pi-val">$454,690</span>
+                            </div>
+                            <span class="pi-badge">9.1倍</span>
+                        </div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 36%;"></div></div>
+                    </div>
+                    <!-- Item 3 -->
+                    <div class="progress-item">
+                        <div class="progress-info">
+                            <div class="pi-left">
+                                <span class="pi-age">76岁</span>
+                                <span class="pi-label">账户价值:</span>
+                                <span class="pi-val">$853,672</span>
+                            </div>
+                            <span class="pi-badge">17.1倍</span>
+                        </div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 54%;"></div></div>
+                    </div>
+                    <!-- Item 4 -->
+                    <div class="progress-item">
+                        <div class="progress-info">
+                            <div class="pi-left">
+                                <span class="pi-age">86岁</span>
+                                <span class="pi-label">账户价值:</span>
+                                <span class="pi-val">$1,602,632</span>
+                            </div>
+                            <span class="pi-badge">32.1倍</span>
+                        </div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 72%;"></div></div>
+                    </div>
+                    <!-- Item 5 -->
+                    <div class="progress-item" style="margin-bottom: 0;">
+                        <div class="progress-info">
+                            <div class="pi-left">
+                                <span class="pi-age">96岁</span>
+                                <span class="pi-label">账户价值:</span>
+                                <span class="pi-val">$3,008,582</span>
+                            </div>
+                            <span class="pi-badge">60.2倍</span>
+                        </div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 100%;"></div></div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 5. Features Grid -->
+        <div class="features-section">
+            <h2 class="features-title">全能型资产配置账户</h2>
+            <div class="features-grid">
+                <!-- 1 -->
+                <div class="feature-card">
+                    <div class="feature-icon-circle">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </div>
+                    <h4 class="feature-name">6种货币互换</h4>
+                    <p class="feature-sub">分散单一货币风险</p>
+                </div>
+                <!-- 2 -->
+                <div class="feature-card">
+                    <div class="feature-icon-circle">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                    </div>
+                    <h4 class="feature-name">无需体检</h4>
+                    <p class="feature-sub">亚健康人士首选</p>
+                </div>
+                <!-- 3 -->
+                <div class="feature-card">
+                    <div class="feature-icon-circle">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    </div>
+                    <h4 class="feature-name">无限次传承</h4>
+                    <p class="feature-sub">财富代代相传</p>
+                </div>
+                <!-- 4 -->
+                <div class="feature-card">
+                    <div class="feature-icon-circle">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+                    </div>
+                    <h4 class="feature-name">保单分拆</h4>
+                    <p class="feature-sub">资产灵活分配</p>
+                </div>
+                <!-- 5 -->
+                <div class="feature-card">
+                    <div class="feature-icon-circle">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"></circle><path d="M18.09 10.37A6 6 0 1 1 10.34 18"></path><path d="M7 6h1v4"></path><path d="m16.71 13.88.7.71-2.82 2.82"></path></svg>
+                    </div>
+                    <h4 class="feature-name">自主入息</h4>
+                    <p class="feature-sub">定制专属现金流</p>
+                </div>
+                <!-- 6 -->
+                <div class="feature-card">
+                    <div class="feature-icon-circle">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    </div>
+                    <h4 class="feature-name">安全稳健</h4>
+                    <p class="feature-sub">保诚百年信誉</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. Footer -->
+        <div class="footer">
+            <div class="cta-box">
+                <h3 class="cta-title">为未来锁定确定性</h3>
+                <p class="cta-desc">
+                    8年回本，长期高达6.5%复利<br>
+                    将不可控的风险，转化为可预期的财富
+                </p>
+                <button class="cta-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    立即开启储蓄计划
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>
