@@ -27,6 +27,20 @@ pwa_html = """
 
 # --- 公共函數部分 ---
 
+def set_global_font_to_simsun(doc):
+    """將文檔中所有文字設置為宋體"""
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
+            run.font.name = 'SimSun'
+            run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = 'SimSun'
+                        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
+
 def extract_values_from_filename(filename):
     values = re.findall(r'\d+', filename)
     if len(values) >= 3:
@@ -114,6 +128,9 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
     if extra_removals:
         for start, end in extra_removals:
             delete_specified_range(doc, start, end)
+    
+    # 全局設置為宋體
+    set_global_font_to_simsun(doc)
             
     bio = io.BytesIO()
     doc.save(bio)
@@ -121,6 +138,11 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
     return bio
 
 def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
+    """
+    刪除 start_text 和 end_text 之間的段落，
+    並將 start_text 所在行的內容與 end_text 所在行的內容合併，
+    同時刪除這兩個標記文本本身。
+    """
     paragraphs = list(doc.paragraphs)
     start_idx = -1
     end_idx = -1
@@ -134,12 +156,18 @@ def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
     if start_idx != -1 and end_idx != -1:
         start_para = paragraphs[start_idx]
         end_para = paragraphs[end_idx]
+        
+        # 1. 刪除 start_para 中的 start_text
         for run in start_para.runs:
             if start_text in run.text:
                 run.text = run.text.replace(start_text, "")
+        
+        # 2. 刪除 end_para 中的 end_text
         for run in end_para.runs:
             if end_text in run.text:
                 run.text = run.text.replace(end_text, "")
+        
+        # 3. 將 end_para 的內容合併到 start_para
         for run in end_para.runs:
             new_run = start_para.add_run(run.text)
             new_run.bold = run.bold
@@ -147,6 +175,8 @@ def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
             new_run.font.name = run.font.name
             new_run.font.size = run.font.size
             new_run.font.color.rgb = run.font.color.rgb
+        
+        # 4. 刪除中間的段落以及 end_para
         for i in range(end_idx, start_idx, -1):
             p = paragraphs[i]._element
             p.getparent().remove(p)
@@ -174,7 +204,7 @@ def convert_docx_to_pdf(docx_bio):
         pdf_data = f.read()
     return pdf_data
 
-# --- 提取邏輯 ---
+# --- 提取邏輯優化 ---
 
 def find_page_by_keyword(pdf_path, keyword):
     try:
@@ -312,13 +342,6 @@ if st.button("🚀 開始處理"):
                             merge_end = "提取方式 3："
                         
                         output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
-                        if "PDF" in export_format:
-                            pdf_data = convert_docx_to_pdf(output_docx)
-                            st.success("✅ PDF 生成完成！")
-                            st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
-                        else:
-                            st.success("✅ Word 生成完成！")
-                            st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
                         
             elif "重疾險" in choice:
                 if not all(pdf_files):
@@ -334,24 +357,30 @@ if st.button("🚀 開始處理"):
                         fn_vals = extract_values_from_filename(pdf.name)
                         if fn_vals:
                             all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
+                        
+                        # 重疾險提取邏輯優化：使用關鍵字定位頁面
                         target_page_summary = find_page_by_keyword(temp_name, "説明摘要") or 6
-                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 56")
-                        f = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
-                        g = get_value_by_text_search(temp_name, target_page_summary, "@ANB 76")
-                        h = get_value_by_text_search(temp_name, target_page_summary, "@ANB 86")
+                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
+                        f = get_value_by_text_search(temp_name, target_page_summary, "@ANB 76")
+                        g = get_value_by_text_search(temp_name, target_page_summary, "@ANB 86")
+                        h = get_value_by_text_search(temp_name, target_page_summary, "@ANB 96")
+                        
+                        # 重疾險 d 提取邏輯優化：搜索「建議書摘要」
                         target_page_d = find_page_by_keyword(temp_name, "建議書摘要") or 5
                         d_vals = extract_row_values(temp_name, target_page_d, "CIP2") or extract_row_values(temp_name, target_page_d, "CIM3")
                         d = d_vals[3] if len(d_vals) > 3 else "N/A"
+                        
                         all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
-                    
                     output_docx = process_word_template(template_path, all_values)
-                    if "PDF" in export_format:
-                        pdf_data = convert_docx_to_pdf(output_docx)
-                        st.success("✅ PDF 生成完成！")
-                        st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
-                    else:
-                        st.success("✅ Word 生成完成！")
-                        st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
+
+            # 導出結果
+            if "PDF" in export_format:
+                pdf_data = convert_docx_to_pdf(output_docx)
+                st.success("✅ 處理完成！")
+                st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
+            else:
+                st.success("✅ 處理完成！")
+                st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
 
         except Exception as e:
             st.error(f"❌ 發生錯誤: {str(e)}")
@@ -359,7 +388,6 @@ if st.button("🚀 開始處理"):
 st.markdown("---")
 st.info("""
 ### 📝 文件命名規則說明
-
 **一、文件命名格式舉例：**
 1. **儲蓄險：**
    - **連續提取：** `4岁人士存20000美金存5年_19到85岁提取12000`
