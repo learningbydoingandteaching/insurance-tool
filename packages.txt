@@ -1,4 +1,9 @@
 ghostscript
 libgl1-mesa-glx
 libreoffice
+default-jdk
+fonts-wqy-zenhei
+fonts-wqy-microhei
+xfonts-wqy
+
 
