@@ -396,7 +396,7 @@ if st.button("🚀 開始處理"):
                         values.update(pdf_values)
                         
                         if "長圖" in export_format:
-                            img_data = generate_marketing_image(values, "新建文本文档.html")
+                            img_data = generate_marketing_image(values, "pic.html")
                             st.success("✅ 長圖生成完成！")
                             st.image(img_data)
                             st.download_button("📥 下載營銷長圖", img_data, file_name="概览.png", mime="image/png")
