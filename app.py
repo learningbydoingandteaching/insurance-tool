@@ -331,8 +331,7 @@ if st.button("🚀 開始處理"):
                         h = get_value_by_text_search(temp_name, target_page, "@ANB 96")
                         
                         # 保留原始 d 的提取邏輯
-                        target_page = find_page_by_keyword("temp_pdf.pdf", "建議書摘要") or 5
-                        d_vals = extract_row_values(temp_name, target_page, "CIP2") or extract_row_values(temp_name, target_page, "CIM3")
+                        d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
                         d = d_vals[3] if len(d_vals) > 3 else "N/A"
                         
                         all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
