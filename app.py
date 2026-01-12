@@ -303,8 +303,8 @@ if st.button("🚀 開始處理"):
                             s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
                             values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
                         else:
-                            merge_start = "在人生的重要阶段提取："
-                            merge_end = "提取方式 3："
+                            merge_start = "提取方式2："
+                            merge_end = "不提取分红"
                         
                         output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
                         
@@ -331,7 +331,8 @@ if st.button("🚀 開始處理"):
                         h = get_value_by_text_search(temp_name, target_page, "@ANB 96")
                         
                         # 保留原始 d 的提取邏輯
-                        d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
+                        target_page = find_page_by_keyword("temp_pdf.pdf", "建議書摘要") or 5
+                        d_vals = extract_row_values(temp_name, target_page, "CIP2") or extract_row_values(temp_name, target_page, "CIM3")
                         d = d_vals[3] if len(d_vals) > 3 else "N/A"
                         
                         all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
