@@ -5,8 +5,6 @@ import camelot
 import fitz  # PyMuPDF
 import pdfplumber
 from docx import Document
-from docx.shared import Pt
-from docx.oxml.ns import qn
 import pandas as pd
 import io
 import subprocess
@@ -26,20 +24,6 @@ pwa_html = """
 """
 
 # --- 公共函數部分 ---
-
-def set_global_font_to_simsun(doc):
-    """將文檔中所有文字設置為宋體"""
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            run.font.name = 'SimSun'
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        run.font.name = 'SimSun'
-                        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
 
 def extract_values_from_filename(filename):
     values = re.findall(r'\d+', filename)
@@ -124,25 +108,17 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
                     replace_and_evaluate_in_paragraph(paragraph, values)
     
     if merge_start_text and merge_end_text:
-        merge_paragraphs_and_delete_between_v2(doc, merge_start_text, merge_end_text)
+        merge_paragraphs_and_delete_between(doc, merge_start_text, merge_end_text)
     if extra_removals:
         for start, end in extra_removals:
             delete_specified_range(doc, start, end)
-    
-    # 全局設置為宋體
-    set_global_font_to_simsun(doc)
             
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio
 
-def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
-    """
-    刪除 start_text 和 end_text 之間的段落，
-    並將 start_text 所在行的內容與 end_text 所在行的內容合併，
-    同時刪除這兩個標記文本本身。
-    """
+def merge_paragraphs_and_delete_between(doc, start_text, end_text):
     paragraphs = list(doc.paragraphs)
     start_idx = -1
     end_idx = -1
@@ -154,20 +130,9 @@ def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
             break
     
     if start_idx != -1 and end_idx != -1:
+        # 將結束段落的內容合併到起始段落
         start_para = paragraphs[start_idx]
         end_para = paragraphs[end_idx]
-        
-        # 1. 刪除 start_para 中的 start_text
-        for run in start_para.runs:
-            if start_text in run.text:
-                run.text = run.text.replace(start_text, "")
-        
-        # 2. 刪除 end_para 中的 end_text
-        for run in end_para.runs:
-            if end_text in run.text:
-                run.text = run.text.replace(end_text, "")
-        
-        # 3. 將 end_para 的內容合併到 start_para
         for run in end_para.runs:
             new_run = start_para.add_run(run.text)
             new_run.bold = run.bold
@@ -176,7 +141,7 @@ def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
             new_run.font.size = run.font.size
             new_run.font.color.rgb = run.font.color.rgb
         
-        # 4. 刪除中間的段落以及 end_para
+        # 刪除起始段落和結束段落之間的所有段落，以及結束段落本身
         for i in range(end_idx, start_idx, -1):
             p = paragraphs[i]._element
             p.getparent().remove(p)
@@ -359,21 +324,20 @@ if st.button("🚀 開始處理"):
                             all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
                         
                         # 重疾險提取邏輯優化：使用關鍵字定位頁面
-                        target_page_summary = find_page_by_keyword(temp_name, "説明摘要") or 6
-                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
-                        f = get_value_by_text_search(temp_name, target_page_summary, "@ANB 76")
-                        g = get_value_by_text_search(temp_name, target_page_summary, "@ANB 86")
-                        h = get_value_by_text_search(temp_name, target_page_summary, "@ANB 96")
+                        target_page = find_page_by_keyword(temp_name, "説明摘要") or 6
+                        e = get_value_by_text_search(temp_name, target_page, "@ANB 56")
+                        f = get_value_by_text_search(temp_name, target_page, "@ANB 66")
+                        g = get_value_by_text_search(temp_name, target_page, "@ANB 76")
+                        h = get_value_by_text_search(temp_name, target_page, "@ANB 86")
                         
-                        # 重疾險 d 提取邏輯優化：搜索「建議書摘要」
-                        target_page_d = find_page_by_keyword(temp_name, "建議書摘要") or 5
-                        d_vals = extract_row_values(temp_name, target_page_d, "CIP2") or extract_row_values(temp_name, target_page_d, "CIM3")
+                        # 保留原始 d 的提取邏輯
+                        d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
                         d = d_vals[3] if len(d_vals) > 3 else "N/A"
                         
                         all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
                     output_docx = process_word_template(template_path, all_values)
 
-            # 導出結果
+            # 導出結果，統一文件名為「概览」
             if "PDF" in export_format:
                 pdf_data = convert_docx_to_pdf(output_docx)
                 st.success("✅ 處理完成！")
@@ -386,20 +350,4 @@ if st.button("🚀 開始處理"):
             st.error(f"❌ 發生錯誤: {str(e)}")
 
 st.markdown("---")
-st.info("""
-**重疾险自动生成之pdf不甚美观，如不喜欢，可自行用生成之word转pdf**
-### 📝 文件命名規則說明
-**一、文件命名格式舉例：**
-1. **儲蓄險：**
-   - **連續提取：** `4岁人士存20000美金存5年_19到85岁提取12000`
-   - **分階段提取：** `6岁人士存10000美金存5年_19到22岁提取8000_31岁提取20000_61到85岁提取31000`
-2. **單次保：**
-   - `1岁男孩 15万美金起始保额 基础单次保25年供`
-3. **加倍保：**
-   - `4岁男孩 10万美金起始保额 新加倍保20年供`
-
-**二、命名格式注意兩個關鍵：**
-1. 核心是**數字的順序**不要錯。
-2. **儲蓄險**的金額不以萬計，而**重疾險**則以萬計。
-""")
-st.caption("💡 提示：請確保所有 Word 模板已上傳至 GitHub 倉庫根目錄。")
+st.caption("💡 提示：請確保所有 Word 模板文件已上傳至 GitHub 倉庫根目錄。")
