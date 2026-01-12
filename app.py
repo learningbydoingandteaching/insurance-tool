@@ -5,6 +5,8 @@ import camelot
 import fitz  # PyMuPDF
 import pdfplumber
 from docx import Document
+from docx.shared import Pt
+from docx.oxml.ns import qn
 import pandas as pd
 import io
 import subprocess
@@ -24,6 +26,20 @@ pwa_html = """
 """
 
 # --- 公共函數部分 ---
+
+def set_global_font_to_simsun(doc):
+    """將文檔中所有文字設置為宋體"""
+    for paragraph in doc.paragraphs:
+        for run in paragraph.runs:
+            run.font.name = 'SimSun'
+            run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = 'SimSun'
+                        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
 
 def extract_values_from_filename(filename):
     values = re.findall(r'\d+', filename)
@@ -108,17 +124,25 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
                     replace_and_evaluate_in_paragraph(paragraph, values)
     
     if merge_start_text and merge_end_text:
-        merge_paragraphs_and_delete_between(doc, merge_start_text, merge_end_text)
+        merge_paragraphs_and_delete_between_v2(doc, merge_start_text, merge_end_text)
     if extra_removals:
         for start, end in extra_removals:
             delete_specified_range(doc, start, end)
+    
+    # 全局設置為宋體
+    set_global_font_to_simsun(doc)
             
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio
 
-def merge_paragraphs_and_delete_between(doc, start_text, end_text):
+def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
+    """
+    刪除 start_text 和 end_text 之間的段落，
+    並將 start_text 所在行的內容與 end_text 所在行的內容合併，
+    同時刪除這兩個標記文本本身。
+    """
     paragraphs = list(doc.paragraphs)
     start_idx = -1
     end_idx = -1
@@ -130,9 +154,20 @@ def merge_paragraphs_and_delete_between(doc, start_text, end_text):
             break
     
     if start_idx != -1 and end_idx != -1:
-        # 將結束段落的內容合併到起始段落
         start_para = paragraphs[start_idx]
         end_para = paragraphs[end_idx]
+        
+        # 1. 刪除 start_para 中的 start_text
+        for run in start_para.runs:
+            if start_text in run.text:
+                run.text = run.text.replace(start_text, "")
+        
+        # 2. 刪除 end_para 中的 end_text
+        for run in end_para.runs:
+            if end_text in run.text:
+                run.text = run.text.replace(end_text, "")
+        
+        # 3. 將 end_para 的內容合併到 start_para
         for run in end_para.runs:
             new_run = start_para.add_run(run.text)
             new_run.bold = run.bold
@@ -141,7 +176,7 @@ def merge_paragraphs_and_delete_between(doc, start_text, end_text):
             new_run.font.size = run.font.size
             new_run.font.color.rgb = run.font.color.rgb
         
-        # 刪除起始段落和結束段落之間的所有段落，以及結束段落本身
+        # 4. 刪除中間的段落以及 end_para
         for i in range(end_idx, start_idx, -1):
             p = paragraphs[i]._element
             p.getparent().remove(p)
@@ -303,8 +338,8 @@ if st.button("🚀 開始處理"):
                             s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
                             values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
                         else:
-                            merge_start = "提取方式2："
-                            merge_end = "不提取分红"
+                            merge_start = "在人生的重要阶段提取："
+                            merge_end = "提取方式 3："
                         
                         output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
                         
@@ -324,20 +359,21 @@ if st.button("🚀 開始處理"):
                             all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
                         
                         # 重疾險提取邏輯優化：使用關鍵字定位頁面
-                        target_page = find_page_by_keyword(temp_name, "説明摘要") or 6
-                        e = get_value_by_text_search(temp_name, target_page, "@ANB 66")
-                        f = get_value_by_text_search(temp_name, target_page, "@ANB 76")
-                        g = get_value_by_text_search(temp_name, target_page, "@ANB 86")
-                        h = get_value_by_text_search(temp_name, target_page, "@ANB 96")
+                        target_page_summary = find_page_by_keyword(temp_name, "説明摘要") or 6
+                        e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 56")
+                        f = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
+                        g = get_value_by_text_search(temp_name, target_page_summary, "@ANB 76")
+                        h = get_value_by_text_search(temp_name, target_page_summary, "@ANB 86")
                         
-                        # 保留原始 d 的提取邏輯
-                        d_vals = extract_row_values(temp_name, 3, "CIP2") or extract_row_values(temp_name, 3, "CIM3")
+                        # 重疾險 d 提取邏輯優化：搜索「建議書摘要」
+                        target_page_d = find_page_by_keyword(temp_name, "建議書摘要") or 5
+                        d_vals = extract_row_values(temp_name, target_page_d, "CIP2") or extract_row_values(temp_name, target_page_d, "CIM3")
                         d = d_vals[3] if len(d_vals) > 3 else "N/A"
                         
                         all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
                     output_docx = process_word_template(template_path, all_values)
 
-            # 導出結果，統一文件名為「概览」
+            # 導出結果
             if "PDF" in export_format:
                 pdf_data = convert_docx_to_pdf(output_docx)
                 st.success("✅ 處理完成！")
