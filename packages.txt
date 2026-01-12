@@ -2,4 +2,5 @@ ghostscript
 libgl1-mesa-glx
 libreoffice
 default-jdk
-fonts-noto-cjk    <-- 这个包含了思源宋体和思源黑体
+fonts-noto-cjk
+
