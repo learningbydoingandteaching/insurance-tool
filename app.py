@@ -5,8 +5,6 @@ import camelot
 import fitz  # PyMuPDF
 import pdfplumber
 from docx import Document
-from docx.shared import Pt
-from docx.oxml.ns import qn
 import pandas as pd
 import io
 import subprocess
@@ -21,25 +19,10 @@ pwa_html = """
 <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/4726/4726010.png">
 <style>
     .stButton>button { width: 100%; border-radius: 10px; height: 3em; background-color: #007AFF; color: white; font-weight: bold; }
-    .stMetric { background-color: #f0f2f6; padding: 10px; border-radius: 10px; margin-bottom: 10px; }
 </style>
 """
 
 # --- 公共函數部分 ---
-
-def set_global_font_to_simsun(doc):
-    """將文檔中所有文字設置為宋體"""
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            run.font.name = 'SimSun'
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        run.font.name = 'SimSun'
-                        run._element.rPr.rFonts.set(qn('w:eastAsia'), 'SimSun')
 
 def extract_values_from_filename(filename):
     values = re.findall(r'\d+', filename)
@@ -128,9 +111,6 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
     if extra_removals:
         for start, end in extra_removals:
             delete_specified_range(doc, start, end)
-    
-    # 全局設置為宋體
-    set_global_font_to_simsun(doc)
             
     bio = io.BytesIO()
     doc.save(bio)
@@ -138,11 +118,6 @@ def process_word_template(template_path, values, merge_start_text=None, merge_en
     return bio
 
 def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
-    """
-    刪除 start_text 和 end_text 之間的段落，
-    並將 start_text 所在行的內容與 end_text 所在行的內容合併，
-    同時刪除這兩個標記文本本身。
-    """
     paragraphs = list(doc.paragraphs)
     start_idx = -1
     end_idx = -1
@@ -156,18 +131,12 @@ def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
     if start_idx != -1 and end_idx != -1:
         start_para = paragraphs[start_idx]
         end_para = paragraphs[end_idx]
-        
-        # 1. 刪除 start_para 中的 start_text
         for run in start_para.runs:
             if start_text in run.text:
                 run.text = run.text.replace(start_text, "")
-        
-        # 2. 刪除 end_para 中的 end_text
         for run in end_para.runs:
             if end_text in run.text:
                 run.text = run.text.replace(end_text, "")
-        
-        # 3. 將 end_para 的內容合併到 start_para
         for run in end_para.runs:
             new_run = start_para.add_run(run.text)
             new_run.bold = run.bold
@@ -175,8 +144,6 @@ def merge_paragraphs_and_delete_between_v2(doc, start_text, end_text):
             new_run.font.name = run.font.name
             new_run.font.size = run.font.size
             new_run.font.color.rgb = run.font.color.rgb
-        
-        # 4. 刪除中間的段落以及 end_para
         for i in range(end_idx, start_idx, -1):
             p = paragraphs[i]._element
             p.getparent().remove(p)
@@ -204,7 +171,17 @@ def convert_docx_to_pdf(docx_bio):
         pdf_data = f.read()
     return pdf_data
 
-# --- 提取邏輯優化 ---
+def process_html_template(template_path, values):
+    if not os.path.exists(template_path):
+        return None
+    with open(template_path, 'r', encoding='utf-8') as f:
+        html_content = f.read()
+    for key, value in values.items():
+        placeholder = f"{{{key}}}"
+        html_content = html_content.replace(placeholder, str(value) if value is not None else "N/A")
+    return html_content
+
+# --- 提取邏輯 ---
 
 def find_page_by_keyword(pdf_path, keyword):
     try:
@@ -263,7 +240,10 @@ sub_choice = None
 if "重疾險" in choice:
     sub_choice = st.radio("選擇產品類型", ["危疾單次保", "誠保一生"], horizontal=True)
 
-export_format = st.radio("選擇導出格式", ["Word (.docx)", "PDF (.pdf)"], horizontal=True)
+formats = ["Word (.docx)", "PDF (.pdf)"]
+if choice in ["儲蓄險", "儲蓄險添加"]:
+    formats.append("HTML 網頁")
+export_format = st.radio("選擇導出格式", formats, horizontal=True)
 
 with st.expander("📁 上傳 PDF 文件", expanded=True):
     if choice in ["儲蓄險", "儲蓄險添加"]:
@@ -321,27 +301,42 @@ if st.button("🚀 開始處理"):
                         values = dict(zip("abcdef", filename_values))
                         values.update(pdf_values)
                         
-                        merge_start, merge_end = None, None
-                        extra_removals = []
-                        if choice == "儲蓄險添加":
-                            extra_removals.append(("信守明天多元货币储蓄计划概要：", "信守明天多元货币储蓄计划概要："))
-                            extra_removals.append(("(保诚保险收益最高的储蓄产品，", "适合身体抱恙不能买寿险人士。"))
-                        
-                        if new_pdf_file:
-                            with open("temp_new_pdf.pdf", "wb") as f:
-                                f.write(new_pdf_file.getbuffer())
-                            n, o, p = extract_nop_from_filename(new_pdf_file.name)
-                            new_doc_fitz = fitz.open("temp_new_pdf.pdf")
-                            p_q_r = len(new_doc_fitz) - 6
-                            q = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 5)
-                            r = extract_table_value("temp_new_pdf.pdf", p_q_r, 12, 5)
-                            s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
-                            values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
+                        if export_format == "HTML 網頁":
+                            html_res = process_html_template("pic.html", values)
+                            if html_res:
+                                st.success("✅ HTML 生成完成！")
+                                st.download_button("📥 下載 HTML 文件", html_res, file_name="概览.html", mime="text/html")
+                            else:
+                                st.error("❌ 找不到 pic.html 模板文件。")
                         else:
-                            merge_start = "在人生的重要阶段提取："
-                            merge_end = "提取方式 3："
-                        
-                        output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
+                            merge_start, merge_end = None, None
+                            extra_removals = []
+                            if choice == "儲蓄險添加":
+                                extra_removals.append(("信守明天多元货币储蓄计划概要：", "信守明天多元货币储蓄计划概要："))
+                                extra_removals.append(("(保诚保险收益最高的储蓄产品，", "适合身体抱恙不能买寿险人士。"))
+                            
+                            if new_pdf_file:
+                                with open("temp_new_pdf.pdf", "wb") as f:
+                                    f.write(new_pdf_file.getbuffer())
+                                n, o, p = extract_nop_from_filename(new_pdf_file.name)
+                                new_doc_fitz = fitz.open("temp_new_pdf.pdf")
+                                p_q_r = len(new_doc_fitz) - 6
+                                q = extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 5)
+                                r = extract_table_value("temp_new_pdf.pdf", p_q_r, 12, 5)
+                                s_new = extract_numeric_value_from_string(extract_table_value("temp_new_pdf.pdf", p_q_r, 11, 0))
+                                values.update({"n": n, "o": o, "p": p, "q": q, "r": r, "s": s_new})
+                            else:
+                                merge_start = "在人生的重要阶段提取："
+                                merge_end = "提取方式 3："
+                            
+                            output_docx = process_word_template(template_path, values, merge_start, merge_end, extra_removals)
+                            if "PDF" in export_format:
+                                pdf_data = convert_docx_to_pdf(output_docx)
+                                st.success("✅ PDF 生成完成！")
+                                st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
+                            else:
+                                st.success("✅ Word 生成完成！")
+                                st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
                         
             elif "重疾險" in choice:
                 if not all(pdf_files):
@@ -357,38 +352,33 @@ if st.button("🚀 開始處理"):
                         fn_vals = extract_values_from_filename(pdf.name)
                         if fn_vals:
                             all_values.update(dict(zip([f"a{suffix}", f"b{suffix}", f"c{suffix}"], fn_vals)))
-                        
-                        # 重疾險提取邏輯優化：使用關鍵字定位頁面
                         target_page_summary = find_page_by_keyword(temp_name, "説明摘要") or 6
                         e = get_value_by_text_search(temp_name, target_page_summary, "@ANB 66")
                         f = get_value_by_text_search(temp_name, target_page_summary, "@ANB 76")
                         g = get_value_by_text_search(temp_name, target_page_summary, "@ANB 86")
                         h = get_value_by_text_search(temp_name, target_page_summary, "@ANB 96")
-                        
-                        # 重疾險 d 提取邏輯優化：搜索「建議書摘要」
                         target_page_d = find_page_by_keyword(temp_name, "建議書摘要") or 5
                         d_vals = extract_row_values(temp_name, target_page_d, "CIP2") or extract_row_values(temp_name, target_page_d, "CIM3")
                         d = d_vals[3] if len(d_vals) > 3 else "N/A"
-                        
                         all_values.update({f"d{suffix}": d, f"e{suffix}": e, f"f{suffix}": f, f"g{suffix}": g, f"h{suffix}": h})
+                    
                     output_docx = process_word_template(template_path, all_values)
-
-            # 導出結果
-            if "PDF" in export_format:
-                pdf_data = convert_docx_to_pdf(output_docx)
-                st.success("✅ 處理完成！")
-                st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
-            else:
-                st.success("✅ 處理完成！")
-                st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
+                    if "PDF" in export_format:
+                        pdf_data = convert_docx_to_pdf(output_docx)
+                        st.success("✅ PDF 生成完成！")
+                        st.download_button("📥 下載 PDF 文件", pdf_data, file_name="概览.pdf", mime="application/pdf")
+                    else:
+                        st.success("✅ Word 生成完成！")
+                        st.download_button("📥 下載 Word 文件", output_docx, file_name="概览.docx")
 
         except Exception as e:
             st.error(f"❌ 發生錯誤: {str(e)}")
 
 st.markdown("---")
+st.warning("💡 重疾險自動生成之 PDF 不甚美觀，如不喜歡，可自行用生成之 Word 轉 PDF。")
 st.info("""
-**重疾险自动生成之pdf不甚美观，如不喜欢，可自行用生成之word转pdf**
 ### 📝 文件命名規則說明
+
 **一、文件命名格式舉例：**
 1. **儲蓄險：**
    - **連續提取：** `4岁人士存20000美金存5年_19到85岁提取12000`
@@ -402,4 +392,3 @@ st.info("""
 1. 核心是**數字的順序**不要錯。
 2. **儲蓄險**的金額不以萬計，而**重疾險**則以萬計。
 """)
-st.caption("💡 提示：請確保所有 Word 模板已上傳至 GitHub 倉庫根目錄。")
