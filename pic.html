@@ -192,7 +192,6 @@
             color: #0f172a;
         }
         
-        /* Fixed: Removed fixed height from container to allow content to flow */
         .chart-container {
             width: 100%;
             position: relative;
@@ -216,7 +215,7 @@
             font-size: 12px;
             color: #94a3b8;
             text-align: center;
-            margin-top: 20px; /* Increased margin */
+            margin-top: 20px;
             font-weight: 500;
         }
         
@@ -397,7 +396,7 @@
             <div class="relative">
                 <div class="tag-pill">信守明天 · 多元货币储蓄计划</div>
                 <h1 class="main-title">
-                    年存1万，5年布局<br>
+                    年存{b}，{c}年布局<br>
                     <span class="highlight-gold">千万级离岸财富</span>
                 </h1>
                 <div class="feature-tags">
@@ -414,17 +413,17 @@
                 <div class="flex justify-between items-center" style="margin-bottom: 20px;">
                     <div>
                         <p class="data-label">总投入本金</p>
-                        <p class="data-value">$50,000 <span class="data-unit">美金</span></p>
+                        <p class="data-value">${{{b}*{c}}} <span class="data-unit">美金</span></p>
                     </div>
                     <div class="text-right">
                         <p class="data-label">缴费期</p>
-                        <p class="data-value">5 <span class="data-unit">年</span></p>
+                        <p class="data-value">{c} <span class="data-unit">年</span></p>
                     </div>
                 </div>
                 <div class="progress-bg">
                     <div class="progress-fill"></div>
                 </div>
-                <p class="cost-note">每年仅需存入 $10,000 (约 ¥70,000)</p>
+                <p class="cost-note">每年仅需存入 ${b} (约 ¥{{ {b}*7 }})</p>
             </div>
         </div>
 
@@ -438,8 +437,8 @@
             </div>
             
             <div class="chart-container">
-                <div class="chart-badge">60倍回报</div>
-                <!-- SVG Chart -->
+                <div class="chart-badge">{{ {m}/({b}*{c}) }}倍回报</div>
+                <!-- SVG Chart (Schematic Curve) -->
                 <svg width="100%" height="220" viewBox="0 0 400 200" preserveAspectRatio="none" style="display: block;">
                     <defs>
                         <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
@@ -478,7 +477,6 @@
                 
                 <!-- X Axis Labels (Positioned Absolutely) -->
                 <div class="axis-container">
-                    <!-- 30岁 removed -->
                     <!-- 56岁 (approx 39%) -->
                     <span class="axis-text" style="left: 39.4%;">56岁</span>
                     <!-- 66岁 (approx 54.5%) -->
@@ -506,15 +504,15 @@
                 <div class="strat-a-content">
                     <div class="flow-row">
                         <div class="text-center">
-                            <p class="age-label">39-90岁</p>
+                            <p class="age-label">{d}-{e}岁</p>
                             <span class="pill-label">每年领取</span>
                         </div>
                         <div class="arrow-line">
                             <svg class="arrow-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
                         </div>
                         <div class="text-right">
-                            <p class="money-large">$4,651</p>
-                            <p class="money-sub">约 ¥3.3万/年</p>
+                            <p class="money-large">${f}</p>
+                            <p class="money-sub">约 ¥{{ {f}*7/10000 }}万/年</p>
                         </div>
                     </div>
                     <div class="info-box">
@@ -523,7 +521,7 @@
                         </div>
                         <div style="font-size: 14px; color: #334155; line-height: 1.5;">
                             <span style="font-weight: 700; color: #1e40af;">不仅领得久，还能传得下：</span><br>
-                            领完52年养老金后，90岁时账户余额仍有 <span style="font-weight: 700; color: #1e40af;">$199,202</span> (约¥139万) 可免税传承。
+                            领完{{ {e}-{d}+1 }}年养老金后，{s}岁时账户余额仍有 <span style="font-weight: 700; color: #1e40af;">${g}</span> (约¥{{ {g}*7/10000 }}万) 可免税传承。
                         </div>
                     </div>
                 </div>
@@ -542,63 +540,63 @@
                     </p>
                     
                     <!-- Progress Items -->
-                    <!-- Item 1 -->
+                    <!-- Item 1: 56岁 -->
                     <div class="progress-item">
                         <div class="progress-info">
                             <div class="pi-left">
                                 <span class="pi-age">56岁</span>
                                 <span class="pi-label">账户价值:</span>
-                                <span class="pi-val">$240,547</span>
+                                <span class="pi-val">${i}</span>
                             </div>
-                            <span class="pi-badge">4.8倍</span>
+                            <span class="pi-badge">{{ {i}/({b}*{c}) }}倍</span>
                         </div>
-                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 18%;"></div></div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: {{ {i}/{m}*100 }}%;"></div></div>
                     </div>
-                    <!-- Item 2 -->
+                    <!-- Item 2: 66岁 -->
                     <div class="progress-item">
                         <div class="progress-info">
                             <div class="pi-left">
                                 <span class="pi-age">66岁</span>
                                 <span class="pi-label">账户价值:</span>
-                                <span class="pi-val">$454,690</span>
+                                <span class="pi-val">${j}</span>
                             </div>
-                            <span class="pi-badge">9.1倍</span>
+                            <span class="pi-badge">{{ {j}/({b}*{c}) }}倍</span>
                         </div>
-                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 36%;"></div></div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: {{ {j}/{m}*100 }}%;"></div></div>
                     </div>
-                    <!-- Item 3 -->
+                    <!-- Item 3: 76岁 -->
                     <div class="progress-item">
                         <div class="progress-info">
                             <div class="pi-left">
                                 <span class="pi-age">76岁</span>
                                 <span class="pi-label">账户价值:</span>
-                                <span class="pi-val">$853,672</span>
+                                <span class="pi-val">${k}</span>
                             </div>
-                            <span class="pi-badge">17.1倍</span>
+                            <span class="pi-badge">{{ {k}/({b}*{c}) }}倍</span>
                         </div>
-                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 54%;"></div></div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: {{ {k}/{m}*100 }}%;"></div></div>
                     </div>
-                    <!-- Item 4 -->
+                    <!-- Item 4: 86岁 -->
                     <div class="progress-item">
                         <div class="progress-info">
                             <div class="pi-left">
                                 <span class="pi-age">86岁</span>
                                 <span class="pi-label">账户价值:</span>
-                                <span class="pi-val">$1,602,632</span>
+                                <span class="pi-val">${l}</span>
                             </div>
-                            <span class="pi-badge">32.1倍</span>
+                            <span class="pi-badge">{{ {l}/({b}*{c}) }}倍</span>
                         </div>
-                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 72%;"></div></div>
+                        <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: {{ {l}/{m}*100 }}%;"></div></div>
                     </div>
-                    <!-- Item 5 -->
+                    <!-- Item 5: 96岁 -->
                     <div class="progress-item" style="margin-bottom: 0;">
                         <div class="progress-info">
                             <div class="pi-left">
                                 <span class="pi-age">96岁</span>
                                 <span class="pi-label">账户价值:</span>
-                                <span class="pi-val">$3,008,582</span>
+                                <span class="pi-val">${m}</span>
                             </div>
-                            <span class="pi-badge">60.2倍</span>
+                            <span class="pi-badge">{{ {m}/({b}*{c}) }}倍</span>
                         </div>
                         <div class="pi-bar-bg"><div class="pi-bar-fill" style="width: 100%;"></div></div>
                     </div>
@@ -608,14 +606,14 @@
 
         </div>
 
-        <!-- 5. Features Grid -->
+        <!-- 5. Features Grid (Static Content) -->
         <div class="features-section">
             <h2 class="features-title">全能型资产配置账户</h2>
             <div class="features-grid">
                 <!-- 1 -->
                 <div class="feature-card">
                     <div class="feature-icon-circle">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1 4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
                     </div>
                     <h4 class="feature-name">6种货币互换</h4>
                     <p class="feature-sub">分散单一货币风险</p>
